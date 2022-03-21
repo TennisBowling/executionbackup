@@ -1,0 +1,2 @@
+aiohttp
+sanic==21.12.1
