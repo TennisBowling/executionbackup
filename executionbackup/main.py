@@ -12,7 +12,7 @@ class ServerOffline(Exception):
 class NodeInstance:
     def __init__(self, url: str):
         self.url: str = url
-        self.session = aiohttp.ClientSession()
+        self.session = aiohttp.ClientSession(headers={'Content-type': 'application/json'}, json_serialize=dumps)
         self.status: bool = False
         self.dispatch = logger.dispatch
     
@@ -30,7 +30,7 @@ class NodeInstance:
 
     async def check_alive(self) -> bool:
         try:
-            async with self.session.get(f'{self.url}/eth/v1/node/health') as resp:
+            async with self.session.post(self.url, json={'jsonrpc': '2.0', 'method': 'eth_syncing', 'params': [], 'id': 1}) as resp:
                 if resp.status == 200:
                     await self.set_online()
                     return True
