@@ -31,9 +31,13 @@ class NodeInstance:
     async def check_alive(self) -> bool:
         try:
             async with self.session.post(self.url, json={'jsonrpc': '2.0', 'method': 'eth_syncing', 'params': [], 'id': 1}) as resp:
-                if resp.status == 200:
+                if (await resp.json())['result']:
+                    await self.set_offline()
+                    return False
+                else:
                     await self.set_online()
                     return True
+
         except:
             await self.set_offline()
             return False
@@ -41,8 +45,7 @@ class NodeInstance:
     async def do_request(self, response: HTTPResponse, data: Dict[str, Any]=None):
         try:
             async with self.session.post(self.url, data=data) as resp:
-                async for data in resp.content:
-                    await response.send(data)
+                await response.send(await resp.text())
         except (aiohttp.ServerTimeoutError, aiohttp.ServerConnectionError):
             await self.set_offline()
             return ServerOffline()

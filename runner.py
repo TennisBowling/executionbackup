@@ -12,7 +12,7 @@ app = Sanic('router')
 
 Account = executionbackup.Account
     
-router = executionbackup.NodeRouter(['http://192.168.86.37:2000'])
+router = executionbackup.NodeRouter([''])
 accounts: Dict[str, Account] = {}
 
 # make db table: ("key" UNIQUE TEXT, "callAmount" BIGINT, "callJson" TEXT)
@@ -55,8 +55,6 @@ async def route(request: Request, path: str):
     #accnt = accounts.get(auth)
     #if not accnt:
         #return response.json({'error': 'api key not authorized'}, status=503)
-    print(request.json)
-    print(request.body)
 
     response = await request.respond() # TODO: get geth response headers and put them here
     await router.route(response, request.body)
