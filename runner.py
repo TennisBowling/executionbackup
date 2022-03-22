@@ -25,7 +25,7 @@ async def setAccounts():
 
 async def doDump():
     for k, v in accounts.items():
-        await router.db.execute("""INSERT INTO accounts (key, callAmount, callJson) VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET callAmount = $2, callJson = $3;""", k, v.callAmount, ujson.dumps(v.callDict))
+        await router.db.execute("""INSERT INTO accounts VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET callAmount=$2, callJson=$3;""", k, v.callAmount, ujson.dumps(v.callDict))
 
 async def dumpIntoDb():
     await asyncio.sleep(900) # since it's called at the start of the execution there are still no calls
@@ -121,4 +121,4 @@ async def node_online(url: str):
 async def node_router_online():
     print('Node router online')
 
-app.run('127.0.0.1', port=8001, access_log=True)
+app.run('0.0.0.0', port=8001, access_log=True)
