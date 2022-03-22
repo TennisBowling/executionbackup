@@ -12,54 +12,59 @@ app = Sanic('router')
 
 Account = executionbackup.Account
     
-router = executionbackup.NodeRouter([''])
+router = executionbackup.NodeRouter(['http://192.168.86.37:2000'])
 accounts: Dict[str, Account] = {}
 
-# make db table: ("key" UNIQUE TEXT, "callAmount" BIGINT, "callJson" TEXT)
+# make db table: ("key" TEXT UNIQUE, "callAmount" BIGINT, "callJson" TEXT)
 
-#async def setAccounts():
-#    async with router.db.acquire() as con:
-#        async with con.transaction():
-#            async for record in con.cursor("""SELECT * FROM accounts;"""):
-#                accounts[record['key']] = Account(record['key'], record['callAmount'], ujson.loads(record['callJson']))   # TODO: make the calldict in the database and set it here
+async def setAccounts():
+    async with router.db.acquire() as con:
+        async with con.transaction():
+            async for record in con.cursor("""SELECT * FROM accounts;"""):
+                accounts[record['key']] = Account(record['key'], record['callAmount'], ujson.loads(record['callJson']))   
 
-#async def doDump():
-#    for k, v in accounts.items():
-#        await router.db.execute("""INSERT INTO accounts ($1, $2) ON CONFLICT (accounts.key) DO UPDATE "callAmount" = $2;""", v.key, v.calls, ujson.dumps(v.callDict))   # TODO: also add calldict here
+async def doDump():
+    for k, v in accounts.items():
+        await router.db.execute("""INSERT INTO accounts (key, callAmount, callJson) VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET callAmount = $2, callJson = $3;""", k, v.callAmount, ujson.dumps(v.callDict))
 
-#async def dumpIntoDb():
-#    await asyncio.sleep(900) # since it's called at the start of the execution there are still no calls
-#    while True:
-#        await doDump()
-#        asyncio.sleep(900) # 15m
+async def dumpIntoDb():
+    await asyncio.sleep(900) # since it's called at the start of the execution there are still no calls
+    while True:
+        await doDump()
+        asyncio.sleep(900) # 15m
 
 @app.before_server_start
 async def before_start(app: Sanic, loop):
     await router.setup()
     app.add_task(router.repeat_check())
-    #router.db = await asyncpg.create_pool('postgresql://tennisbowling:hehe@127.0.0.1/executionbackup')
-    #await setAccounts()
-    #app.add_task(dumpIntoDb())
+    router.db = await asyncpg.create_pool('postgresql://tennisbowling:o0ierhg@192.168.86.37/tennisbowling')
+    await setAccounts()
+    app.add_task(dumpIntoDb())
 
 @app.before_server_stop
 async def after_stop(app: Sanic, loop):
     await router.stop() # no more requests come
-    #for k, v in accounts.items():
-        #await router.db.execute("""INSERT INTO accounts VALUES ($1, $2, $3) ON CONFLICT (accounts.key) DO UPDATE SET "callAmount" = $2 AND "callsJson" = $3;""", v.key, v.calls, v.callDict)   # TODO: also add calldict here
-    #await router.db.close()
+    await doDump()
+    await router.db.close()
     
 @app.route('/<path:path>', methods=['POST'])
 async def route(request: Request, path: str):
-    #auth = (request.raw_url.decode()).strip('/')
+    auth = (request.raw_url.decode()).strip('/')
     
-    #accnt = accounts.get(auth)
-    #if not accnt:
-        #return response.json({'error': 'api key not authorized'}, status=503)
+    accnt = accounts.get(auth)
+    if not accnt:
+        return response.json({'error': 'api key not authorized'}, status=503)
 
-    response = await request.respond() # TODO: get geth response headers and put them here
-    await router.route(response, request.body)
-    #call = (request.body.decode())['method']
-    #accnt[call] += 1
+    resp = await request.respond() # TODO: get geth response headers and put them here
+    await router.route(resp, request.body)
+    try:
+        call = request.json['method']
+    except KeyError: return
+    if not accnt.callDict.get(call):
+        accnt.callDict[call] = 1
+    else:
+        accnt.callDict[call] += 1
+    accnt.callAmount += 1
 
 @app.route('/executionbackup/version', methods=['GET'])
 async def ver(request: Request):
@@ -91,8 +96,8 @@ async def removekey(request: Request):
     del accounts[key]
     return response.json({'success': True})
 
-@app.route('/executionbackup/cachedstats', methods=['GET'])
-async def cachedstats(request: Request):
+@app.route('/executionbackup/stats', methods=['GET'])
+async def stats(request: Request):
     key = request.json['key']
 
     if not accounts.get(key):
