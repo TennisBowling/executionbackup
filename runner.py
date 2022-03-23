@@ -15,17 +15,17 @@ Account = executionbackup.Account
 router = executionbackup.NodeRouter(['http://192.168.86.37:2000'])
 accounts: Dict[str, Account] = {}
 
-# make db table: ("key" TEXT UNIQUE, "callAmount" BIGINT, "callJson" TEXT)
+# make db table: ("key" TEXT UNIQUE, "callamount" BIGINT, "calljson" TEXT)
 
 async def setAccounts():
     async with router.db.acquire() as con:
         async with con.transaction():
             async for record in con.cursor("""SELECT * FROM accounts;"""):
-                accounts[record['key']] = Account(record['key'], record['callAmount'], ujson.loads(record['callJson']))   
+                accounts[record['key']] = Account(record['key'], record['callamount'], ujson.loads(record['calljson']))   
 
 async def doDump():
     for k, v in accounts.items():
-        await router.db.execute("""INSERT INTO accounts VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET callAmount=$2, callJson=$3;""", k, v.callAmount, ujson.dumps(v.callDict))
+        await router.db.execute("""INSERT INTO accounts (key, callamount, calljson) VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET callamount=$2, calljson=$3;""", k, v.callAmount, ujson.dumps(v.callDict))
 
 async def dumpIntoDb():
     await asyncio.sleep(900) # since it's called at the start of the execution there are still no calls
