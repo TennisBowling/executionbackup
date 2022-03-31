@@ -88,6 +88,8 @@ async def addkey(request: Request):
 
 @app.route('/executionbackup/removekey', methods=['POST'])
 async def removekey(request: Request):
+    if not request.json.get('Auth') == 'I love tennis':
+        return response.json({'success': False, 'message': 'auth failed'}, status=403)
     key = request.json['key']
 
     if not accounts.get(key):
@@ -98,6 +100,8 @@ async def removekey(request: Request):
 
 @app.route('/executionbackup/stats', methods=['GET'])
 async def stats(request: Request):
+    if not request.json.get('Auth') == 'I love tennis':
+        return response.json({'success': False, 'message': 'auth failed'}, status=403)
     key = request.json['key']
 
     if not accounts.get(key):
@@ -121,4 +125,4 @@ async def node_online(url: str):
 async def node_router_online():
     print('Node router online')
 
-app.run('0.0.0.0', port=8001, access_log=True)
+app.run('0.0.0.0', port=8001, access_log=False)
