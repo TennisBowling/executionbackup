@@ -64,12 +64,13 @@ class NodeRouter:
         self.dispatch = logger.dispatch
         self.listener = logger.listener
     
-    async def recheck(self) -> None:
+    async def recheck(self) -> List[NodeInstance]: # returns a list of alive nodes
         tasks = [node.check_alive() for node in self.nodes]
         results = await asyncio.gather(*tasks)
         self.alive_count = results.count(True)  
         self.dead_count = len(self.nodes) - self.alive_count
         self.index = 0
+        return [node for node in self.nodes if node.status]
     
     async def repeat_check(self) -> None:
         while True:
@@ -98,6 +99,10 @@ class NodeRouter:
             return ServerOffline()
         except AttributeError:
             return OutOfAliveNodes() # you're out of nodes
+    
+    async def do_request_all_nodes(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> None:
+        tasks = [node.do_request(resp, request) for node in (await self.recheck())]
+        await asyncio.gather(*tasks)
     
     async def route(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> Tuple[Dict[str, Any], int]:
         data = await self.do_request(resp, request)

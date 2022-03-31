@@ -37,7 +37,7 @@ async def dumpIntoDb():
 async def before_start(app: Sanic, loop):
     await router.setup()
     app.add_task(router.repeat_check())
-    router.db = await asyncpg.create_pool('postgresql://tennisbowling:o0ierhg@192.168.86.37/tennisbowling')
+    router.db = await asyncpg.create_pool('postgresql://tennisbowling:wergh@192.168.86.37/tennisbowling')
     await setAccounts()
     app.add_task(dumpIntoDb())
 
