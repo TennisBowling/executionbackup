@@ -100,11 +100,29 @@ class NodeRouter:
         except AttributeError:
             return OutOfAliveNodes() # you're out of nodes
     
-    async def do_request_all_nodes(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> None:
+
+    # https://github.com/ethereum/execution-apis/blob/main/src/engine/specification.md#load-balancing-and-advanced-configurations=
+
+    # CL will be the one contacting us, and we route it to the node
+    # - Choosing a payload from the getPayload responses (just picking the first is the easiest solution, choosing the most profitable is ideal but much harder).
+    # - Selecting a response from newPayload and forkchoiceUpdated and ensuring they don't conflict.
+    # - Detecting poor service from the nodes and switching between them.
+
+    # debated: Regaring picking responses for newPayload and forkchoiceUpdated, the CL probably wants to try and stick with the same one, for consistency. Then switch over when the primary one is determined to have poor quality of service.
+    async def do_request_all(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> None:
+        if request['method'] == 'engine_newPayload':    # right now we just get one payload but later we will pick the most profitable one
+            await self.route(resp, request)
+            return  # we don't need to do anything else
+
+        #if request['method'] == 'engine_forkchoiceUpdated':
+
+
         tasks = [node.do_request(resp, request) for node in (await self.recheck())]
         await asyncio.gather(*tasks)
     
-    async def route(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> Tuple[Dict[str, Any], int]:
+    
+    
+    async def route(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> None:
         data = await self.do_request(resp, request)
 
         if isinstance(data, OutOfAliveNodes):
