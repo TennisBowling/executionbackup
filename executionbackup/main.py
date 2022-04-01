@@ -1,3 +1,4 @@
+from secrets import choice
 import aiohttp
 from typing import *
 import asyncio
@@ -110,17 +111,30 @@ class NodeRouter:
 
     # debated: Regaring picking responses for newPayload and forkchoiceUpdated, the CL probably wants to try and stick with the same one, for consistency. Then switch over when the primary one is determined to have poor quality of service.
     async def do_request_all(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> None:
-        if request['method'] == 'engine_newPayload':    # right now we just get one payload but later we will pick the most profitable one
+        if request['method'] == 'engine_getPayloadV1':    # right now we just get one payload but later we will pick the most profitable one
             await self.route(resp, request)
             return  # we don't need to do anything else
 
-        #if request['method'] == 'engine_forkchoiceUpdated':
 
-
+        # send the request to all nodes
         tasks = [node.do_request(resp, request) for node in (await self.recheck())]
-        await asyncio.gather(*tasks)
-    
-    
+        resps = await asyncio.gather(*tasks)
+
+        # find the majority response
+        majority_response = resps[0]
+        majority_count = 1
+        for resp in resps[1:]:
+            if resp == majority_response:
+                majority_count += 1
+            else:
+                majority_count -= 1
+        if majority_count < 0:
+            majority_count = 0
+        majority_response = majority_response if majority_count > len(resps) / 2 else choice(resps)
+
+        await resp.send(majority_response)
+        return
+        
     
     async def route(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> None:
         data = await self.do_request(resp, request)
