@@ -1,10 +1,10 @@
-from secrets import choice
 import aiohttp
 from typing import *
 import asyncio
 from . import logger
 from sanic.response import HTTPResponse
 from ujson import dumps
+from sanic.request import Request
 
 
 class ServerOffline(Exception):
@@ -43,10 +43,10 @@ class NodeInstance:
             await self.set_offline()
             return False
     
-    async def do_request(self, response: HTTPResponse, data: Dict[str, Any]=None):
+    async def do_request(self, data: Dict[str, Any]=None) -> Union[Tuple[str, int], ServerOffline]:
         try:
             async with self.session.post(self.url, data=data) as resp:
-                await response.send(await resp.text())
+                return await resp.text()
         except (aiohttp.ServerTimeoutError, aiohttp.ServerConnectionError):
             await self.set_offline()
             return ServerOffline()
@@ -83,7 +83,7 @@ class NodeRouter:
         await self.recheck()
         await self.dispatch('node_router_online')
     
-    async def get_alive_node(self) -> Optional[NodeInstance]:
+    async def get_alive_node(self) -> Optional[NodeInstance]:   # to be deprecated
         if self.alive_count == 0:
             return None
         if self.index >= self.alive_count:
@@ -91,15 +91,6 @@ class NodeRouter:
         node = self.nodes[self.index]
         self.index += 1
         return node
-    
-    async def do_request(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> Union[None, ServerOffline, OutOfAliveNodes]:
-        node = await self.get_alive_node()
-        try:
-            await node.do_request(resp, request)
-        except ServerOffline:
-            return ServerOffline()
-        except AttributeError:
-            return OutOfAliveNodes() # you're out of nodes
     
 
     # https://github.com/ethereum/execution-apis/blob/main/src/engine/specification.md#load-balancing-and-advanced-configurations=
@@ -110,45 +101,37 @@ class NodeRouter:
     # - Detecting poor service from the nodes and switching between them.
 
     # debated: Regaring picking responses for newPayload and forkchoiceUpdated, the CL probably wants to try and stick with the same one, for consistency. Then switch over when the primary one is determined to have poor quality of service.
-    async def do_request_all(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> None:
-        if request['method'] == 'engine_getPayloadV1':    # right now we just get one payload but later we will pick the most profitable one
-            await self.route(resp, request)
-            return  # we don't need to do anything else
+    async def do_request_all(self, req: Request) -> None:
+        if req.json['method'] == 'engine_getPayloadV1':    # right now we just get one payload but later we will pick the most profitable one
+            n = await self.get_alive_node()     # old code
+            r = await n.do_request(req.body)
+            resp = await req.respond(status=r[1])
+            await resp.send(r[0], end_stream=True)
+        else:
+            await self.route(req)
 
-
+    
+    async def route(self, req: Request) -> None:
         # send the request to all nodes
-        tasks = [node.do_request(resp, request) for node in (await self.recheck())]
+        tasks = [node.do_request(req.body) for node in [node for node in self.nodes if node.status]]
         resps = await asyncio.gather(*tasks)
 
-        # find the majority response
-        majority_response = resps[0]
-        majority_count = 1
-        for resp in resps[1:]:
-            if resp == majority_response:
-                majority_count += 1
-            else:
-                majority_count -= 1
-        if majority_count < 0:
-            majority_count = 0
-        majority_response = majority_response if majority_count > len(resps) / 2 else choice(resps)
-
-        await resp.send(majority_response)
-        return
-        
-    
-    async def route(self, resp: HTTPResponse, request: Dict[str, Any]=None) -> None:
-        data = await self.do_request(resp, request)
-
-        if isinstance(data, OutOfAliveNodes):
+        if not resps:
+            resp = await req.respond(status=500)
             await resp.send(dumps({'error': 'no upstream nodes'}), end_stream=True)
             return
 
-        while isinstance(data, ServerOffline):
-            await self.recheck()
-            data = await self.do_request(resp, request)
-            if isinstance(data, OutOfAliveNodes):
-                await resp.send(dumps({'error': 'no upstream nodes'}), end_stream=True)
-                return
+        # find the most common response
+        counts = {}
+        for resp in resps:
+            if resp not in counts:
+                counts[resp] = 0
+            counts[resp] += 1
+        most_common = max(counts, key=counts.get)
+
+        # send the response
+        resp = await req.respond(status=most_common[1])
+        await resp.send(most_common[0], end_stream=True)
     
     async def stop(self) -> None:
         tasks = [node.stop() for node in self.nodes]

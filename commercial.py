@@ -53,10 +53,9 @@ async def route(request: Request, path: str):
     
     accnt = accounts.get(auth)
     if not accnt:
-        return response.json({'error': 'api key not authorized'}, status=503)
+        return response.json({'error': 'api key not authorized'}, status=403)
 
-    resp = await request.respond() # TODO: get geth response headers and put them here
-    await router.route(resp, request.body)
+    await router.route(request)
     try:
         call = request.json['method']
     except KeyError: return

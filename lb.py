@@ -21,11 +21,10 @@ async def after_stop(app: Sanic, loop):
 @app.route('/', methods=['POST'])
 async def route(request: Request):
 
-    resp = await request.respond()
     if request.json['method'].startswith('engine_'):
-        await router.do_request_all(request, resp)
+        await router.do_request_all(request)
     else:
-        await router.route(resp, request.body)
+        await router.route(request)
 
 
 @app.route('/executionbackup/version', methods=['GET'])
