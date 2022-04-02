@@ -4,9 +4,10 @@ from sanic.request import Request
 from platform import python_version, system, release, machine
 
 
+
 app = Sanic('router')
     
-router = executionbackup.NodeRouter(['http://192.168.86.37:2000'])
+router = executionbackup.NodeRouter(['http://192.168.86.37:8554'])
 
 
 @app.before_server_start
@@ -57,4 +58,4 @@ async def node_error(url: str, error: str):
 async def node_router_online():
     print('Node router online')
 
-app.run('0.0.0.0', port=8001, access_log=False)
+app.run('0.0.0.0', port=8001, access_log=True)

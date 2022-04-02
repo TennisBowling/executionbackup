@@ -2,8 +2,7 @@ import aiohttp
 from typing import *
 import asyncio
 from . import logger
-from sanic.response import HTTPResponse
-from ujson import dumps
+from ujson import dumps, loads
 from sanic.request import Request
 
 
@@ -43,10 +42,10 @@ class NodeInstance:
             await self.set_offline()
             return False
     
-    async def do_request(self, data: Dict[str, Any]=None) -> Union[Tuple[str, int], ServerOffline]:
+    async def do_request(self, data: Dict[str, Any]=None) -> Union[Tuple[str, int, str], ServerOffline]:
         try:
             async with self.session.post(self.url, data=data) as resp:
-                return await resp.text()
+                return (await resp.text(), resp.status, dumps(dict(resp.headers)))
         except (aiohttp.ServerTimeoutError, aiohttp.ServerConnectionError):
             await self.set_offline()
             return ServerOffline()
@@ -113,13 +112,16 @@ class NodeRouter:
     
     async def route(self, req: Request) -> None:
         # send the request to all nodes
-        tasks = [node.do_request(req.body) for node in [node for node in self.nodes if node.status]]
+        tasks = []
+        for node in self.nodes:
+            tasks.append(node.do_request(req.body))
         resps = await asyncio.gather(*tasks)
 
         if not resps:
             resp = await req.respond(status=500)
             await resp.send(dumps({'error': 'no upstream nodes'}), end_stream=True)
             return
+
 
         # find the most common response
         counts = {}
@@ -130,7 +132,7 @@ class NodeRouter:
         most_common = max(counts, key=counts.get)
 
         # send the response
-        resp = await req.respond(status=most_common[1])
+        resp = await req.respond(status=most_common[1], headers=loads(most_common[2]))
         await resp.send(most_common[0], end_stream=True)
     
     async def stop(self) -> None:
