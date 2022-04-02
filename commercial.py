@@ -15,7 +15,7 @@ Account = executionbackup.Account
 router = executionbackup.NodeRouter(['http://192.168.86.37:2000'])
 accounts: Dict[str, Account] = {}
 
-# make db table: ("key" TEXT UNIQUE, "callamount" BIGINT, "calljson" TEXT)
+# make db table: CREATE TABLE accounts ("key" TEXT UNIQUE, "callamount" BIGINT, "calljson" TEXT)
 
 async def setAccounts():
     async with router.db.acquire() as con:

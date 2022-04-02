@@ -1,2 +1,3 @@
 aiohttp
-sanic==21.12.1
+sanic
+ujson

@@ -1,18 +1,30 @@
-# consensusbackup
+# executionbackup
 
-consensusbackup is a high-availability routing consensus node program.  
-consensusbackup supports the whole consensus standard API, with any client that supports the standard API can run as a node for consensusbackup.
-consensusbackup load-balances the network of nodes, and provides a reliable and high-performance consensus service.
+executionbackup is a load-balancing proxy to load balance requests to multiple execution nodes.
 
-## Installing
-Install latest stable:
-`python -m pip install consensusbackup`  
+It can be used in two modes: internal-lb and commercial-lb.
 
-Install latest develop:
-`python -m pip install git+https://github.com/TennisBowling/consensusbackup.git`  
+Internal-lb lets one (and only one) consensus node to pilot multiple execution nodes.  
+Commercial-lb lets multiple commerical clients to connect to execution nodes and get requests from them. Commercial-lb will get a majority response from execution nodes and return it to the client, assuring that the client does not get different responses for the same requests. (similar to Alchemy's Supernode) Commercial-lb also provides statistics about client's requests which are sent to a postgres database.
 
+## Running
 
-## Usage
-Example running in examplerunner.py  
-You'll need to add your nodes to the list in the runner.  
-Then run it like `python examplerunner.py`  
+First, clone the repository, and install dependencies:
+
+```bash
+git clone https://github.com/tennisbowling/executionbackup.git
+cd executionbackup
+python3 -m pip install -r requirements.txt
+```
+
+Then, run it:
+
+Internal-lb:
+
+```bash
+python3 lb.py --port 8000 --nodes http://node1:8545 http://node2:8546 # etc
+```
+And then point your CL to http://address.of.lb:portyouchose # in the example, 8000
+
+Commercial: Contact me on discord, I am TennisBowling#7174
+since it's more complicated to setup.

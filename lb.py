@@ -2,12 +2,19 @@ import executionbackup
 from sanic import Sanic, response
 from sanic.request import Request
 from platform import python_version, system, release, machine
+import argparse
 
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--nodes', nargs='+', required=True, help='Nodes to load-balance across. Example: --nodes http://localhost:8545 http://localhost:8546 \nMust be at least one.')
+parser.add_argument('--port', type=int, default=8000, help='Port to run the load-balancer on.')
+args = parser.parse_args()
 
 
 app = Sanic('router')
     
-router = executionbackup.NodeRouter(['http://192.168.86.37:8554'])
+router = executionbackup.NodeRouter(args.nodes)
 
 
 @app.before_server_start
@@ -58,4 +65,4 @@ async def node_error(url: str, error: str):
 async def node_router_online():
     print('Node router online')
 
-app.run('0.0.0.0', port=8001, access_log=True)
+app.run('0.0.0.0', port=args.port, access_log=True)
