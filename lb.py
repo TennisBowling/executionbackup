@@ -1,9 +1,11 @@
+from distutils.log import debug
 import executionbackup
 from sanic import Sanic, response
 from sanic.request import Request
+from sanic.log import logger, Colors
 from platform import python_version, system, release, machine
 import argparse
-
+import logging
 
 
 parser = argparse.ArgumentParser()
@@ -13,8 +15,33 @@ args = parser.parse_args()
 
 
 app = Sanic('router')
+logger.setLevel(logging.ERROR) # we don't want to see the sanic logs
     
 router = executionbackup.NodeRouter(args.nodes)
+
+class coloredFormatter(logging.Formatter):
+
+    reset =  "\x1b[0m"
+
+    FORMATS = {
+        logging.DEBUG: '[%(asctime)s] %(levelname)s - %(message)s' + reset,
+        logging.INFO: f'[%(asctime)s] {Colors.GREEN}%(levelname)s{reset} - %(message)s',
+        logging.WARNING: f'[%(asctime)s] {Colors.YELLOW}%(levelname)s{reset} - %(message)s',
+        logging.ERROR: f'[%(asctime)s] {Colors.RED}%(levelname)s{reset} - %(message)s',
+        logging.CRITICAL: f'[%(asctime)s] {Colors.RED}%(levelname)s{reset} - %(message)s'
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
+logger = logging.getLogger('router')
+logger.setLevel(logging.INFO)
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+ch.setFormatter(coloredFormatter())
+logger.addHandler(ch)
 
 
 @app.before_server_start
@@ -30,10 +57,9 @@ async def after_stop(app: Sanic, loop):
 async def route(request: Request):
 
     if request.json['method'].startswith('engine_'):
-        await router.do_request_all(request)
+        await router.do_engine_route(request)
     else:
         await router.route(request)
-
 
 @app.route('/executionbackup/version', methods=['GET'])
 async def ver(request: Request):
@@ -45,24 +71,24 @@ async def status(request: Request):
     ok = 200 if router.alive_count > 0 else 503
     return response.json({'status': ok, 'alive': router.alive_count, 'dead': router.dead_count}, status=ok)
 
+@router.listener('node_online')
+async def node_online(url: str):
+    logger.info(f'Node {url} is online')
+
 @router.listener('node_offline')
 async def node_offline(url: str):
-    print(f'Node {url} is offline')
+    logger.info(f'Node {url} is offline')
 
 @router.listener('all_nodes_offline')
 async def all_nodes_offline():
-    print('All nodes are offline!')
-
-@router.listener('node_online')
-async def node_online(url: str):
-    print(f'Node {url} is online')
+    logger.critical('All nodes are offline')
 
 @router.listener('node_error')
 async def node_error(url: str, error: str):
-    print(f'Node {url} error: {error}')
+    logger.warning(f'Node {url} has error: {error}')
 
 @router.listener('node_router_online')
 async def node_router_online():
-    print('Node router online')
+    logger.info('Node router is online')
 
-app.run('0.0.0.0', port=args.port, access_log=True)
+app.run('0.0.0.0', port=args.port, access_log=False, debug=False)

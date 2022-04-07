@@ -55,6 +55,12 @@ async def route(request: Request, path: str):
     if not accnt:
         return response.json({'error': 'api key not authorized'}, status=403)
 
+    try:
+        if request.json['method'].startswith('engine_'):
+            return response.json({'error': 'method not allowed'}, status=403)
+    except KeyError:    # fix your stupid json people
+        return response.json({'error': 'method not found'}, status=404)
+
     await router.route(request)
     try:
         call = request.json['method']

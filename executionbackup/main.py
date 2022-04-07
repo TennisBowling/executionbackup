@@ -100,7 +100,7 @@ class NodeRouter:
     # - Detecting poor service from the nodes and switching between them.
 
     # debated: Regaring picking responses for newPayload and forkchoiceUpdated, the CL probably wants to try and stick with the same one, for consistency. Then switch over when the primary one is determined to have poor quality of service.
-    async def do_request_all(self, req: Request) -> None:
+    async def do_engine_route(self, req: Request) -> None:
         if req.json['method'] == 'engine_getPayloadV1':    # right now we just get one payload but later we will pick the most profitable one
             n = await self.get_alive_node()     # old code
             r = await n.do_request(req.body)
