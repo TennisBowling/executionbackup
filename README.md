@@ -24,7 +24,11 @@ Internal-lb:
 ```bash
 python3 lb.py --port 8000 --nodes http://node1:8545 http://node2:8546 # etc
 ```
-And then point your CL to http://address.of.lb:portyouchose # in the example, 8000
+And then point your CL to http://address.of.lb:portyouchose # in the example, port 8000
 
 Commercial: Contact me on discord, I am TennisBowling#7174
 since it's more complicated to setup.
+
+## TODO
+- get the most profitable block (query geth `eth_balance` with blockid of `pending`?) to give to CL
+- test it
