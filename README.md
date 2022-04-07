@@ -1,8 +1,8 @@
 # executionbackup
 
-executionbackup is a load-balancing proxy to load balance requests to multiple execution nodes.
+executionbackup is a load-balancing proxy to load balance requests to multiple execution nodes, as well as a multiplexer between consensus and execution nodes.
 
-It can be used in two modes: internal-lb and commercial-lb.
+It can be used in two modes: internal-lb (multiplexer) and commercial-lb.
 
 Internal-lb lets one (and only one) consensus node to pilot multiple execution nodes.  
 Commercial-lb lets multiple commerical clients to connect to execution nodes and get requests from them. Commercial-lb will get a majority response from execution nodes and return it to the client, assuring that the client does not get different responses for the same requests. (similar to Alchemy's Supernode) Commercial-lb also provides statistics about client's requests which are sent to a postgres database.
