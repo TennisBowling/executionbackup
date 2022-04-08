@@ -30,7 +30,7 @@ class NodeInstance:
 
     async def check_alive(self) -> bool:
         try:
-            async with self.session.post(self.url, json={'jsonrpc': '2.0', 'method': 'eth_syncing', 'params': [], 'id': 1}) as resp:
+            async with self.session.post(self.url, json={'jsonrpc': '2.0', 'method': 'eth_syncing', 'params': [], 'id': 1}, timeout=10) as resp:
                 if (await resp.json())['result']:
                     await self.set_offline()
                     return False
@@ -44,9 +44,9 @@ class NodeInstance:
     
     async def do_request(self, data: Dict[str, Any]=None) -> Union[Tuple[str, int, str], ServerOffline]:
         try:
-            async with self.session.post(self.url, data=data) as resp:
+            async with self.session.post(self.url, data=data, timeout=3) as resp:   # if we go higher than 3, we may be more counter-productive waiting for all the nodes to respond 
                 return (await resp.text(), resp.status, dumps(dict(resp.headers)))
-        except (aiohttp.ServerTimeoutError, aiohttp.ServerConnectionError):
+        except (aiohttp.ServerTimeoutError, aiohttp.ServerConnectionError, aiohttp.ClientConnectionError, aiohttp.ClientOSError, aiohttp.ClientResponseError):
             await self.set_offline()
             return ServerOffline()
     
@@ -55,6 +55,7 @@ class NodeInstance:
 
 class OutOfAliveNodes:
     pass
+
 
 class NodeRouter:
     def __init__(self, urls: List[str]):
@@ -82,15 +83,17 @@ class NodeRouter:
         await self.recheck()
         await self.dispatch('node_router_online')
     
-    async def get_alive_node(self) -> Optional[NodeInstance]:   # to be deprecated
+    async def get_execution_node(self) -> NodeInstance:
+        # get the same node, if offline, add 1 to the index and try again
         if self.alive_count == 0:
-            return None
-        if self.index >= self.alive_count:
+            raise OutOfAliveNodes()
+        if self.index >= len(self.nodes):
             self.index = 0
         node = self.nodes[self.index]
-        self.index += 1
+        if not node.status:
+            self.index += 1
+            return await self.get_execution_node()
         return node
-    
 
     # https://github.com/ethereum/execution-apis/blob/main/src/engine/specification.md#load-balancing-and-advanced-configurations=
 
@@ -108,32 +111,29 @@ class NodeRouter:
             await resp.send(r[0], end_stream=True)
         else:
             await self.route(req)
-
     
     async def route(self, req: Request) -> None:
-        # send the request to all nodes
-        tasks = []
-        for node in self.nodes:
-            tasks.append(node.do_request(req.body))
-        resps = await asyncio.gather(*tasks)
+        if req.json['method'] == 'engine_forkchoiceUpdatedV1':
+            # wait for just one node to respond but send it to all
+            n = await self.get_execution_node()
+            r = await n.do_request(req.body)
+            [asyncio.create_task(node.do_request(req.body)) for node in self.nodes if node.status and node != n]
+            resp = await req.respond(status=r[1], headers=loads(r[2]))
+            await resp.send(r[0], end_stream=True)
+            return
+            
 
-        if not resps:
-            resp = await req.respond(status=500)
+        # send the request to all nodes
+        n = await self.get_execution_node()
+        r = await n.do_request(req.body)
+        if isinstance(r, ServerOffline):
+            resp = await req.respond(status=r[1], headers=loads(r[2]))
             await resp.send(dumps({'error': 'no upstream nodes'}), end_stream=True)
             return
 
-
-        # find the most common response
-        counts = {}
-        for resp in resps:
-            if resp not in counts:
-                counts[resp] = 0
-            counts[resp] += 1
-        most_common = max(counts, key=counts.get)
-
         # send the response
-        resp = await req.respond(status=most_common[1], headers=loads(most_common[2]))
-        await resp.send(most_common[0], end_stream=True)
+        resp = await req.respond(status=r[1], headers=loads(r[2]))
+        await resp.send(r[0], end_stream=True)
     
     async def stop(self) -> None:
         tasks = [node.stop() for node in self.nodes]
