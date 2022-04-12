@@ -104,16 +104,12 @@ class NodeRouter:
 
     # debated: Regaring picking responses for newPayload and forkchoiceUpdated, the CL probably wants to try and stick with the same one, for consistency. Then switch over when the primary one is determined to have poor quality of service.
     async def do_engine_route(self, req: Request) -> None:
-        if req.json['method'] == 'engine_getPayloadV1':    # right now we just get one payload but later we will pick the most profitable one
-            n = await self.get_alive_node()     # old code
+        if req.json['method'] == 'engine_getPayloadV1':
+            n = await self.get_execution_node()
             r = await n.do_request(req.body)
             resp = await req.respond(status=r[1])
             await resp.send(r[0], end_stream=True)
         else:
-            await self.route(req)
-    
-    async def route(self, req: Request) -> None:
-        if req.json['method'] == 'engine_forkchoiceUpdatedV1':
             # wait for just one node to respond but send it to all
             n = await self.get_execution_node()
             r = await n.do_request(req.body)
@@ -121,19 +117,12 @@ class NodeRouter:
             resp = await req.respond(status=r[1], headers=loads(r[2]))
             await resp.send(r[0], end_stream=True)
             return
+    
+    async def route(self, req: Request) -> None:
+        # TODO: find what to do here
+        pass
             
 
-        # send the request to all nodes
-        n = await self.get_execution_node()
-        r = await n.do_request(req.body)
-        if isinstance(r, ServerOffline):
-            resp = await req.respond(status=r[1], headers=loads(r[2]))
-            await resp.send(dumps({'error': 'no upstream nodes'}), end_stream=True)
-            return
-
-        # send the response
-        resp = await req.respond(status=r[1], headers=loads(r[2]))
-        await resp.send(r[0], end_stream=True)
     
     async def stop(self) -> None:
         tasks = [node.stop() for node in self.nodes]
