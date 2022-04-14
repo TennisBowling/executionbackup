@@ -4,6 +4,7 @@ import asyncio
 from . import logger
 from ujson import dumps, loads
 from sanic.request import Request
+from time import monotonic
 
 
 class ServerOffline(Exception):
@@ -28,19 +29,21 @@ class NodeInstance:
         self.status = False
         await self.dispatch('node_offline', self.url)
 
-    async def check_alive(self) -> bool:
+    async def check_alive(self):
         try:
+            start = monotonic()
             async with self.session.post(self.url, json={'jsonrpc': '2.0', 'method': 'eth_syncing', 'params': [], 'id': 1}, timeout=10) as resp:
+                end = monotonic()
                 if (await resp.json())['result']:
                     await self.set_offline()
-                    return False
+                    return (self, False, ((end - start) * 1000))
                 else:
                     await self.set_online()
-                    return True
+                    return (self, True, ((end - start) * 1000))
 
         except:
             await self.set_offline()
-            return False
+            return (self, False, ((end - start) * 1000))
     
     async def do_request(self, data: Dict[str, Any]=None) -> Union[Tuple[str, int, str], ServerOffline]:
         try:
@@ -64,14 +67,14 @@ class NodeRouter:
         self.urls = urls
         self.dispatch = logger.dispatch
         self.listener = logger.listener
-    
-    async def recheck(self) -> List[NodeInstance]: # returns a list of alive nodes
+        self.index = 0
+
+    async def recheck(self):
         tasks = [node.check_alive() for node in self.nodes]
         results = await asyncio.gather(*tasks)
-        self.alive_count = results.count(True)  
-        self.dead_count = len(self.nodes) - self.alive_count
-        self.index = 0
-        return [node for node in self.nodes if node.status]
+        self.alive = [node for node, status, time in sorted(results, key=lambda x: x[1]) if node.status]
+
+        self.dead = [node for node, time, status in results if not node.status]
     
     async def repeat_check(self) -> None:
         while True:
@@ -85,15 +88,11 @@ class NodeRouter:
     
     async def get_execution_node(self) -> NodeInstance:
         # get the same node, if offline, add 1 to the index and try again
-        if self.alive_count == 0:
-            raise OutOfAliveNodes()
-        if self.index >= len(self.nodes):
-            self.index = 0
-        node = self.nodes[self.index]
-        if not node.status:
-            self.index += 1
-            return await self.get_execution_node()
-        return node
+        if not self.alive:
+            return OutOfAliveNodes()
+        n = self.alive[self.index]
+        self.index = (self.index + 1) % len(self.alive)
+        return n
 
     # https://github.com/ethereum/execution-apis/blob/main/src/engine/specification.md#load-balancing-and-advanced-configurations=
 
@@ -113,17 +112,19 @@ class NodeRouter:
             # wait for just one node to respond but send it to all
             n = await self.get_execution_node()
             r = await n.do_request(req.body)
-            [asyncio.create_task(node.do_request(req.body)) for node in self.nodes if node.status and node != n]
             resp = await req.respond(status=r[1], headers=loads(r[2]))
             await resp.send(r[0], end_stream=True)
+            [asyncio.create_task(node.do_request(req.body)) for node in self.nodes if node.status and node != n]
             return
     
     async def route(self, req: Request) -> None:
-        # TODO: find what to do here
-        pass
+        # handle "normal" requests
+        n = await self.get_execution_node()
+        r = await n.do_request(req.body)
+        resp = await req.respond(status=r[1], headers=loads(r[2]))
+        await resp.send(r[0], end_stream=True)
             
 
-    
     async def stop(self) -> None:
         tasks = [node.stop() for node in self.nodes]
         await asyncio.gather(*tasks)

@@ -55,7 +55,6 @@ async def after_stop(app: Sanic, loop):
     
 @app.route('/', methods=['POST'])
 async def route(request: Request):
-
     if request.json['method'].startswith('engine_'):
         await router.do_engine_route(request)
     else:
@@ -68,8 +67,8 @@ async def ver(request: Request):
 @app.route('/executionbackup/status', methods=['GET'])
 async def status(request: Request):
     #await router.recheck()
-    ok = 200 if router.alive_count > 0 else 503
-    return response.json({'status': ok, 'alive': router.alive_count, 'dead': router.dead_count}, status=ok)
+    ok = 200 if len(router.alive) > 0 else 503
+    return response.json({'status': ok, 'alive': len(router.alive), 'dead': len(router.dead)}, status=ok)
 
 @router.listener('node_online')
 async def node_online(url: str):
