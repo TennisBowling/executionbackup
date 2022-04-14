@@ -2,7 +2,7 @@ import aiohttp
 from typing import *
 import asyncio
 from . import logger
-from ujson import dumps
+from ujson import dumps, loads
 from sanic.request import Request
 from time import monotonic
 
