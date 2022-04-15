@@ -108,12 +108,14 @@ class NodeRouter:
         if req.json['method'] == 'engine_getPayloadV1':
             n = await self.get_execution_node()
             r = await n.do_request(req.headers, req.body)
-            await req.respond(status=r[1]).send(r[0], end_stream=True)
+            resp = await req.respond(status=r[1], headers=r[2])
+            await resp.send(r[0], end_stream=True)
         else:
             # wait for just one node to respond but send it to all
             n = await self.get_execution_node()
             r = await n.do_request(req.headers, req.body)
-            await req.respond(status=r[1], headers=r[2]).send(r[0], end_stream=True)
+            resp = await req.respond(status=r[1], headers=r[2])
+            await resp.send(r[0], end_stream=True)
             [asyncio.create_task(node.do_request(req.headers, req.body)) for node in self.nodes if node.status and node != n]
             return
     
@@ -121,7 +123,8 @@ class NodeRouter:
         # handle "normal" requests
         n = await self.get_execution_node()
         r = await n.do_request(req.headers, req.body)
-        await req.respond(status=r[1], headers=r[2]).send(r[0], end_stream=True)
+        resp = await req.respond(status=r[1], headers=r[2])
+        await resp.send(r[0], end_stream=True)
             
 
     async def stop(self) -> None:

@@ -6,6 +6,7 @@ from sanic.log import logger, Colors
 from platform import python_version, system, release, machine
 import argparse
 import logging
+from os import cpu_count
 
 
 parser = argparse.ArgumentParser()
@@ -90,4 +91,4 @@ async def node_error(url: str, error: str):
 async def node_router_online():
     logger.info('Node router is online')
 
-app.run('0.0.0.0', port=args.port, access_log=False, debug=False)
+app.run('0.0.0.0', port=8000, access_log=False, debug=False, workers=cpu_count())
