@@ -7,6 +7,7 @@ from platform import python_version, system, release, machine
 import argparse
 import logging
 from os import cpu_count
+from psutil import Process
 
 
 parser = argparse.ArgumentParser()
@@ -69,7 +70,7 @@ async def ver(request: Request):
 async def status(request: Request):
     #await router.recheck()
     ok = 200 if len(router.alive) > 0 else 503
-    return response.json({'status': ok, 'alive': len(router.alive), 'dead': len(router.dead)}, status=ok)
+    return response.json({'status': ok, 'alive': len(router.alive), 'dead': len(router.dead), 'RAM usage': (Process().memory_info()[0] / float(2 ** 20))}, status=ok)
 
 @router.listener('node_online')
 async def node_online(url: str):
