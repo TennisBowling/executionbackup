@@ -150,7 +150,6 @@ class NodeRouter:
                 r = await n.do_request(data=req.body, headers=req.headers)
                 resp = await req.respond(status=r[1], headers=r[2])
                 await resp.send(r[0], end_stream=True)
-                print(r[0])
                 [asyncio.create_task(node.do_request(data=req.body, headers=req.headers)) for node in self.alive if node != n]
 
 
