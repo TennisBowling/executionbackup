@@ -21,7 +21,7 @@ Then, run it:
 Internal-lb:
 
 ```bash
-python3 lb.py --port 8000 --nodes http://node1:8545 http://node2:8546 # etc
+python3 lb.py --port 8000 --nodes http://node1:8545 ws://node2:8546 # etc
 ```
 And then point your CL to `http://address.of.lb:portyouchose # in the example, port 8000`
 

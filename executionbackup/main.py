@@ -1,3 +1,4 @@
+from email.header import make_header
 import aiohttp
 from typing import *
 import asyncio
@@ -5,18 +6,27 @@ from . import logger
 from ujson import dumps, loads
 from sanic.request import Request
 from time import monotonic
+import websockets
 
 
 class ServerOffline(Exception):
     pass
 
+
 class NodeInstance:
     def __init__(self, url: str):
         self.url: str = url
-        self.session = aiohttp.ClientSession(json_serialize=dumps)
         self.status: bool = False
         self.dispatch = logger.dispatch
-    
+        
+    async def setup_session(self):
+        if self.url.startswith('w'):
+            self.session = await websockets.connect(self.url)
+            self.is_ws = True
+        else:
+            self.session = aiohttp.ClientSession(json_serialize=dumps)
+            self.is_ws = False
+
     async def set_online(self):
         if self.status:
             return
@@ -29,29 +39,36 @@ class NodeInstance:
         self.status = False
         await self.dispatch('node_offline', self.url)
 
-    async def check_alive(self):
-        await self.set_online()
-        return (self, True, 1)
+    async def check_alive(self):    # return the a tuple of nodeinstance, status, and the response time
+        #await self.set_online()    # TODO: find a way to get these nodes synced but not get requests from them
+        #return (self, True, 1)
+        start = 0.0
+        end = 0.0       # because otherwise we can't read it in the except block
         try:
             start = monotonic()
-            async with self.session.post(self.url, json={'jsonrpc': '2.0', 'method': 'eth_syncing', 'params': [], 'id': 1}, headers={'Content-type': 'application/json'}, timeout=10) as resp:
-                end = monotonic()
-                if (await resp.json())['result']:
-                    await self.set_offline()
-                    return (self, False, ((end - start) * 1000))
-                else:
-                    await self.set_online()
-                    return (self, True, ((end - start) * 1000))
+            resp = await self.do_request(data='{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}', headers={'Content-type': 'application/json'})
+            end = monotonic()
+            if (loads(resp[0]))['result']: # result is false if node is synced
+                await self.set_offline()
+                return (self, False, ((end - start) * 1000))
+            else:
+                await self.set_online()
+                return (self, True, ((end - start) * 1000))
 
         except:
             await self.set_offline()
             return (self, False, ((end - start) * 1000))
     
-    async def do_request(self, headers: Dict[str, Any], data: Dict[str, Any]=None) -> Union[Tuple[str, int, str], ServerOffline]:
+    async def do_request(self, *, data: str, headers: Dict[str, Any]=None) -> Union[Tuple[str, int, dict], ServerOffline]:
         try:
-            async with self.session.post(self.url, data=data, headers=headers, timeout=3) as resp:   # if we go higher than 3, we may be more counter-productive waiting for all the nodes to respond 
-                return (await resp.text(), resp.status, dict(resp.headers))
-        except (aiohttp.ServerTimeoutError, aiohttp.ServerConnectionError, aiohttp.ClientConnectionError, aiohttp.ClientOSError, aiohttp.ClientResponseError):
+            if self.is_ws:
+                await self.session.send(data)
+                resp = await self.session.recv()
+                return (resp, 200, {'Content-Encoding': 'identity', 'Content-Type': 'application/json', 'Vary': 'Origin', 'Content-Length': len(resp)}) # geth response headers include the date but most clients (probably) don't care
+            else:
+                async with self.session.post(self.url, data=data, headers=headers, timeout=3) as resp:
+                    return (await resp.text(), resp.status, dict(resp.headers))
+        except:
             await self.set_offline()
             return ServerOffline()
     
@@ -84,7 +101,11 @@ class NodeRouter:
             await asyncio.sleep(60)
 
     async def setup(self) -> None:
-        self.nodes: List[NodeInstance] = [NodeInstance(url) for url in self.urls]
+        self.nodes: List[NodeInstance] = []
+        for url in self.urls:
+            inst = NodeInstance(url)
+            await inst.setup_session()
+            self.nodes.append(inst)
         await self.recheck()
         await self.dispatch('node_router_online')
     
@@ -104,27 +125,46 @@ class NodeRouter:
     # - Detecting poor service from the nodes and switching between them.
 
     # debated: Regaring picking responses for newPayload and forkchoiceUpdated, the CL probably wants to try and stick with the same one, for consistency. Then switch over when the primary one is determined to have poor quality of service.
-    async def do_engine_route(self, req: Request) -> None:
-        if req.json['method'] == 'engine_getPayloadV1':
-            n = await self.get_execution_node()
-            r = await n.do_request(req.headers, req.body)
-            resp = await req.respond(status=r[1], headers=r[2])
-            await resp.send(r[0], end_stream=True)
+    async def do_engine_route(self, req: Request, ws, ws_text) -> None:
+        if ws:  # you NEED to have application/json as a header for this to work when contacting http endpoints
+            if loads(ws_text)['method'] == 'engine_getPayloadV1':
+                n = await self.get_execution_node()
+                r = await n.do_request(data=req.body, headers={'Content-type': 'application/json'})
+                await ws.send(r[0])
+            else:
+                # wait for one node to respond but send the request to all
+                n = await self.get_execution_node()
+                r = await n.do_request(data=req.body, headers={'Content-type': 'application/json'})
+                await ws.send(r[0])
+                [asyncio.create_task(node.do_request(data=req, headers={'Content-type': 'application/json'})) for node in self.alive if node != n]
+
         else:
-            # wait for just one node to respond but send it to all
+            if req.json['method'] == 'engine_getPayloadV1':
+                n = await self.get_execution_node()
+                r = await n.do_request(data=req.body, headers=req.headers)
+                resp = await req.respond(status=r[1], headers=r[2])
+                await resp.send(r[0], end_stream=True)
+            else:
+                # wait for just one node to respond but send it to all
+                n = await self.get_execution_node()
+                r = await n.do_request(data=req.body, headers=req.headers)
+                resp = await req.respond(status=r[1], headers=r[2])
+                await resp.send(r[0], end_stream=True)
+                print(r[0])
+                [asyncio.create_task(node.do_request(data=req.body, headers=req.headers)) for node in self.alive if node != n]
+
+
+    async def route(self, req: Request, ws, ws_text) -> None:
+        # handle "normal" requests
+        if ws:  # you NEED to have application/json as a header for this to work when contacting http endpoints
             n = await self.get_execution_node()
-            r = await n.do_request(req.headers, req.body)
+            r = await n.do_request(data=ws_text, headers={'Content-type': 'application/json'})
+            await ws.send(r[0])
+        else:
+            n = await self.get_execution_node()
+            r = await n.do_request(data=req.body, headers=req.headers)
             resp = await req.respond(status=r[1], headers=r[2])
             await resp.send(r[0], end_stream=True)
-            [asyncio.create_task(node.do_request(req.headers, req.body)) for node in self.nodes if node.status and node != n]
-            return
-    
-    async def route(self, req: Request) -> None:
-        # handle "normal" requests
-        n = await self.get_execution_node()
-        r = await n.do_request(req.headers, req.body)
-        resp = await req.respond(status=r[1], headers=r[2])
-        await resp.send(r[0], end_stream=True)
             
 
     async def stop(self) -> None:

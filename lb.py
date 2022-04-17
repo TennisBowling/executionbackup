@@ -1,8 +1,8 @@
-from distutils.log import debug
 import executionbackup
 from sanic import Sanic, response
 from sanic.request import Request
 from sanic.log import logger, Colors
+from ujson import loads
 from platform import python_version, system, release, machine
 import argparse
 import logging
@@ -58,9 +58,18 @@ async def after_stop(app: Sanic, loop):
 @app.route('/', methods=['POST'])
 async def route(request: Request):
     if request.json['method'].startswith('engine_'):
-        await router.do_engine_route(request)
+        await router.do_engine_route(request, None, None)
     else:
-        await router.route(request)
+        await router.route(request, None, None)
+
+@app.websocket('/')
+async def route_ws(request: Request, ws):
+    while True:
+        req = await ws.recv()
+        if loads(req)['method'].startswith('engine_'):
+            await router.do_engine_route(request, ws, req)
+        else:
+            await router.route(request, ws, req)
 
 @app.route('/executionbackup/version', methods=['GET'])
 async def ver(request: Request):
@@ -92,4 +101,4 @@ async def node_error(url: str, error: str):
 async def node_router_online():
     logger.info('Node router is online')
 
-app.run('0.0.0.0', port=8000, access_log=False, debug=False, workers=cpu_count())
+app.run('0.0.0.0', port=args.port, access_log=False, debug=False, workers=cpu_count())
