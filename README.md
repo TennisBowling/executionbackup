@@ -1,4 +1,6 @@
 # executionbackup
+[![Total alerts](https://img.shields.io/lgtm/alerts/g/TennisBowling/executionbackup.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/TennisBowling/executionbackup/alerts/)
+[![Language grade: Python](https://img.shields.io/lgtm/grade/python/g/TennisBowling/executionbackup.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/TennisBowling/executionbackup/context:python)
 
 executionbackup is a multiplexer between consensus and execution nodes.
 
