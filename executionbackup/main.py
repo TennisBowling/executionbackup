@@ -56,7 +56,7 @@ class NodeInstance:
                 await self.set_online()
                 return (self, True, ((end - start) * 1000))
 
-        except:
+        except Exception:
             await self.set_offline()
             return (self, False, ((end - start) * 1000))
     
@@ -69,7 +69,7 @@ class NodeInstance:
             else:
                 async with self.session.post(self.url, data=data, headers=headers, timeout=3) as resp:
                     return (await resp.text(), resp.status, dict(resp.headers))
-        except:
+        except Exception:
             await self.set_offline()
             return ServerOffline()
     
