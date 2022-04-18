@@ -1,4 +1,3 @@
-from email.header import make_header
 import aiohttp
 from typing import *
 import asyncio
