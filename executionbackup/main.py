@@ -67,6 +67,8 @@ class NodeInstance:
                 resp = await self.session.recv()
                 return (resp, 200, {'Content-Encoding': 'identity', 'Content-Type': 'application/json', 'Vary': 'Origin', 'Content-Length': len(resp)}) # geth response headers include the date but most clients (probably) don't care
             else:
+                if loads(data)['method'] == 'eth_subscribe':
+                    return ('{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"The method eth_subscribe does not exist/is not available"}}', 200, '{"Content-Encoding": "identity", "Content-Type": "application/json", "Vary": "Origin", "Content-Length": 117}')
                 async with self.session.post(self.url, data=data, headers=headers, timeout=3) as resp:
                     return (await resp.text(), resp.status, dict(resp.headers))
         except Exception:
