@@ -30,7 +30,7 @@ impl NodeInstance {
 
     pub async fn set_offline(&mut self) {
         self.status = false;
-        info!("Node {} is offline", self.url);
+        info!(url = %self.url, "Node is offline");
     }
 
     pub async fn check_alive(&mut self) -> Result<(bool, u128), Box<dyn std::error::Error>> {
@@ -80,23 +80,12 @@ impl NodeInstance {
         if response.status().is_success() {
             Ok(response.text().await?)
         } else {
-            self.status = false;
+            self.set_offline().await;
             Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Request failed",
             )))
         }
-
-        /*
-        let r = self
-            .client
-            .post(&self.url)
-            .body(data)
-            .headers(map)
-            .send()
-            .await?
-            .text()
-            .await?; */
     }
 }
 
