@@ -7,6 +7,8 @@ use reqwest::{
 use std::time::Instant;
 use tracing::{debug, info, warn, Level};
 use tracing_subscriber::fmt;
+#[macro_use(c)]
+extern crate cute;
 
 struct NodeInstance {
     pub url: String,
@@ -94,6 +96,18 @@ struct NodeRouter {
     pub index: i64,
     pub alive: Vec[NodeInstance],
     pub dead: Vec[NodeInstance]
+}
+
+impl NodeRouter {
+    async pub fn new(urls: Vec[String]) {
+
+        
+
+        NodeRouter {
+            urls: urls,
+            index: 0,
+        }
+    }
 }
 
 #[tokio::main]
