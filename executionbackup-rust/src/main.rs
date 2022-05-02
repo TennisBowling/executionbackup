@@ -89,6 +89,13 @@ impl NodeInstance {
     }
 }
 
+struct NodeRouter {
+    pub urls: Vec[String],
+    pub index: i64,
+    pub alive: Vec[NodeInstance],
+    pub dead: Vec[NodeInstance]
+}
+
 #[tokio::main]
 async fn main() {
     let format = fmt::format().with_target(false);
