@@ -7,8 +7,7 @@ use reqwest::{
 use std::time::Instant;
 use tracing::{debug, info, warn, Level};
 use tracing_subscriber::fmt;
-#[macro_use(c)]
-extern crate cute;
+use futures::future::join_all;
 
 struct NodeInstance {
     pub url: String,
@@ -94,20 +93,50 @@ impl NodeInstance {
 struct NodeRouter {
     pub urls: Vec[String],
     pub index: i64,
+    pub nodes: Vec[NodeInstance],
     pub alive: Vec[NodeInstance],
     pub dead: Vec[NodeInstance]
 }
 
 impl NodeRouter {
-    async pub fn new(urls: Vec[String]) {
+    pub fn new(urls: Vec[String]) -> NodeRouter {
 
-        
+        let mut alive = Vec::new();
+        let mut dead = Vec::new();
+        let mut nodes = Vec::new();
+
+        for url in urls {
+            nodes.push(NodeInstance::new(url));
+        }
 
         NodeRouter {
             urls: urls,
             index: 0,
+            nodes: nodes,
+            alive: alive,
+            dead: dead
         }
     }
+
+    async pub fn recheck(&mut self) {
+        let futs = Vec::new();
+        for (i, node) in self.nodes.iter().enumerate() {
+            futs.push(async { (i, node.check_alive().await) })
+        }
+
+        let results = try_join_all(futs).await?;
+        results.sort_unstable_by(|(_, i)| i);
+        self.alive.clear();
+        self.dead.clear();
+
+
+    }
+
+    async pub fn setup(self) {
+        await self.recheck();
+        info!("node router online");
+    }
+
 }
 
 #[tokio::main]
