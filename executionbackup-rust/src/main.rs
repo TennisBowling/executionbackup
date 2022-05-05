@@ -1,4 +1,5 @@
 use actix_web::{get, web, App, HttpServer, Responder};
+use futures::future::join_all;
 use json;
 use reqwest::{
     header::{HeaderMap, HeaderName},
@@ -7,7 +8,6 @@ use reqwest::{
 use std::time::Instant;
 use tracing::{debug, info, warn, Level};
 use tracing_subscriber::fmt;
-use futures::future::join_all;
 
 struct NodeInstance {
     pub url: String,
@@ -91,16 +91,15 @@ impl NodeInstance {
 }
 
 struct NodeRouter {
-    pub urls: Vec[String],
+    pub urls: Vec<String>,
     pub index: i64,
-    pub nodes: Vec[NodeInstance],
-    pub alive: Vec[NodeInstance],
-    pub dead: Vec[NodeInstance]
+    pub nodes: Vec<NodeInstance>,
+    pub alive: Vec<NodeInstance>,
+    pub dead: Vec<NodeInstance>,
 }
 
 impl NodeRouter {
-    pub fn new(urls: Vec[String]) -> NodeRouter {
-
+    pub fn new(urls: Vec<String>) -> NodeRouter {
         let mut alive = Vec::new();
         let mut dead = Vec::new();
         let mut nodes = Vec::new();
@@ -114,32 +113,70 @@ impl NodeRouter {
             index: 0,
             nodes: nodes,
             alive: alive,
-            dead: dead
+            dead: dead,
         }
     }
 
-    async pub fn recheck(&mut self) {
+    pub async fn recheck(&mut self) {
         let futs = Vec::new();
         for (i, node) in self.nodes.iter().enumerate() {
             futs.push(async { (i, node.check_alive().await) })
         }
 
-        let results = try_join_all(futs).await?;
+        let results = join_all(futs).await;
         results.sort_unstable_by(|(_, i)| i);
         self.alive.clear();
         self.dead.clear();
 
-
+        for node in results {
+            if node.1.is_ok() {
+                self.alive.push(self.nodes[node.0].clone());
+            } else {
+                self.dead.push(self.nodes[node.0].clone());
+            }
+        }
     }
 
-    async pub fn setup(self) {
-        await self.recheck();
-        info!("node router online");
+    pub async fn setup(&mut self) {
+        self.recheck().await;
+        info!(urls = %self.urls, "Nodes are alive");
     }
 
+    pub async fn get_execution_node(&mut self) -> Result<NodeInstance, Box<dyn std::error::Error>> {
+        if self.alive.is_empty() {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "No alive nodes",
+            )));
+        }
+
+        let n = self.alive[self.index];
+        self.index = (self.index + 1) % self.alive.len();
+        Ok(n)
+    }
+
+    /*python implem:
+    async def route(self, req: Request, ws, ws_text) -> None:
+        n = await self.get_execution_node()
+        r = await n.do_request(data=req.body, headers=req.headers)
+        resp = await req.respond(status=r[1], headers=r[2])
+        await resp.send(r[0], end_stream=True) */
+
+    pub async fn route(&mut self, body: String, headers: Vec<(String, String)>) -> String {
+        let n = self.get_execution_node().await?;
+        n.do_request(body, headers).await?
+    }
 }
 
-#[tokio::main]
+#[post("/")]
+async fn route(request: web::Request, router: web::Data<NodeRouter>) -> impl Responder {
+    let body = request.body_string().await?;
+    let headers = request.headers().iter().collect::<Vec<_>>();
+    let r = router.route(body, headers).await;
+    HttpResponse::Ok().body(r)
+}
+
+#[actix_web::main]
 async fn main() {
     let format = fmt::format().with_target(false);
     let subscriber = fmt()
@@ -150,13 +187,15 @@ async fn main() {
     tracing::subscriber::set_global_default(subscriber)
         .expect("Setting default subscriber failed. File an issue at https://github.com/TennisBowling/executionbackup/issues");
 
-    let mut node: NodeInstance = NodeInstance::new(String::from("http://192.168.86.83:8545"));
-    let res = node.check_alive().await;
-    match res {
-        Ok((status, time)) => {
-            println!("{}", status);
-            println!("{}", time);
-        }
-        Err(e) => println!("{}", e),
-    }
+    // make the http server
+    let mut router = NodeRouter::new(vec!["http://192.168.86.37:8545".to_string()]);
+
+    router.setup().await;
+
+    // make actix web server
+    HttpServer::new(move || App::new().data(router.clone()).service(route))
+        .bind("localhost:8080")
+        .unwrap()
+        .run()
+        .await;
 }
