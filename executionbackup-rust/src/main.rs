@@ -92,7 +92,7 @@ impl NodeInstance {
 
 struct NodeRouter {
     pub urls: Vec<String>,
-    pub index: i64,
+    pub index: usize,
     pub nodes: Vec<NodeInstance>,
     pub alive: Vec<NodeInstance>,
     pub dead: Vec<NodeInstance>,
@@ -124,15 +124,15 @@ impl NodeRouter {
         }
 
         let results = join_all(futs).await;
-        results.sort_unstable_by(|_, i| i);
+        results.sort_unstable_by(|(_, i)| i);
         self.alive.clear();
         self.dead.clear();
 
         for node in results {
             if node.status {
-                self.alive.push(node);
+                self.alive.push(node.node);
             } else {
-                self.dead.push(node);
+                self.dead.push(node.node);
             }
         }
     }
@@ -164,15 +164,17 @@ impl NodeRouter {
 
     pub async fn route(&mut self, body: String, headers: Vec<(String, String)>) -> String {
         let n = self.get_execution_node().await.unwrap();
-        n.do_request(body, headers).await?
+        n.do_request(body, headers).await.unwrap()
     }
 }
 
 #[post("/")]
 async fn route(request: HttpRequest, router: web::Data<NodeRouter>) -> impl Responder {
-    let body = request.body_string().await?;
+    let body = request.body_bytes().await.unwrap();
+    let body = std::str::from_utf8(&body).unwrap();
     let headers = request.headers().iter().collect::<Vec<_>>();
-    router.route(body, headers).await
+
+    router.route(body.to_string(), headers).await;
 }
 
 #[actix_web::main]
