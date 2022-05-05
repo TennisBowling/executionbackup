@@ -1,4 +1,4 @@
-use actix_web::{get, web, App, HttpServer, Responder};
+use actix_web::{post, web, App, HttpRequest, HttpServer, Responder};
 use futures::future::join_all;
 use json;
 use reqwest::{
@@ -124,22 +124,22 @@ impl NodeRouter {
         }
 
         let results = join_all(futs).await;
-        results.sort_unstable_by(|(_, i)| i);
+        results.sort_unstable_by(|_, i| i);
         self.alive.clear();
         self.dead.clear();
 
         for node in results {
-            if node.1.is_ok() {
-                self.alive.push(self.nodes[node.0].clone());
+            if node.status {
+                self.alive.push(node);
             } else {
-                self.dead.push(self.nodes[node.0].clone());
+                self.dead.push(node);
             }
         }
     }
 
     pub async fn setup(&mut self) {
         self.recheck().await;
-        info!(urls = %self.urls, "Nodes are alive");
+        info!("node router online");
     }
 
     pub async fn get_execution_node(&mut self) -> Result<NodeInstance, Box<dyn std::error::Error>> {
@@ -163,17 +163,16 @@ impl NodeRouter {
         await resp.send(r[0], end_stream=True) */
 
     pub async fn route(&mut self, body: String, headers: Vec<(String, String)>) -> String {
-        let n = self.get_execution_node().await?;
+        let n = self.get_execution_node().await.unwrap();
         n.do_request(body, headers).await?
     }
 }
 
 #[post("/")]
-async fn route(request: web::Request, router: web::Data<NodeRouter>) -> impl Responder {
+async fn route(request: HttpRequest, router: web::Data<NodeRouter>) -> impl Responder {
     let body = request.body_string().await?;
     let headers = request.headers().iter().collect::<Vec<_>>();
-    let r = router.route(body, headers).await;
-    HttpResponse::Ok().body(r)
+    router.route(body, headers).await
 }
 
 #[actix_web::main]
