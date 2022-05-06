@@ -194,7 +194,7 @@ async fn main() {
     router.setup().await;
 
     // make actix web server
-    HttpServer::new(move || App::new().data(router.clone()).service(route))
+    HttpServer::new(move || App::new().data(&router).service(route))
         .bind("localhost:8080")
         .unwrap()
         .run()
