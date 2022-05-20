@@ -37,7 +37,7 @@ docker build . --tag=executionbackup:latest
 
 Then, run it:
 ```
-docker run executionbackup:latest --port 8000 --nodes http://node1:8545 ws://node2:8546
+docker run -p 8000:8000 executionbackup:latest --port 8000 --nodes http://node1:8545 ws://node2:8546
 ```
 
 ## Support
