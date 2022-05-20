@@ -13,6 +13,7 @@ from psutil import Process
 parser = argparse.ArgumentParser()
 parser.add_argument('--nodes', nargs='+', required=True, help='Nodes to load-balance across. Example: --nodes http://localhost:8545 http://localhost:8546 \nMust be at least one.')
 parser.add_argument('--port', type=int, default=8000, help='Port to run the load-balancer on.')
+parser.add_argument('--workers', type=int, default=cpu_count(), help='Number of workers to run. Default: logical cores.')
 args = parser.parse_args()
 
 
@@ -101,4 +102,4 @@ async def node_error(url: str, error: str):
 async def node_router_online():
     logger.info('Node router is online')
 
-app.run('0.0.0.0', port=args.port, access_log=False, debug=False, workers=cpu_count())
+app.run('0.0.0.0', port=args.port, access_log=False, debug=False, workers=args.workers)
