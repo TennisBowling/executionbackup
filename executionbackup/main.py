@@ -154,13 +154,13 @@ class NodeRouter:
                 #    if not loads(resp[0])['result']['payloadStatus']['status'] == 'VALID':
                 #        # TODO: return SYNCING
                 #        return
-
+                # RESP IS {"jsonrpc":"2.0","id":1,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null},"payloadId":null}}
                 n = await self.get_execution_node()
                 r = await n.do_request(data=req.body, json=req.json, headers=req.headers)
                 resp = await req.respond(status=r[1], headers=r[2])
                 await resp.send(r[0], end_stream=True)
-                [asyncio.create_task(node.do_request(data=req.body, json=req.json, headers=req.headers)) for node in self.alive if node != n]
-                print(r[0]) # professional debugging
+                resps = await asyncio.gather(*[asyncio.create_task(node.do_request(data=req.body, json=req.json, headers=req.headers)) for node in self.alive if node != n])
+                [print(resp[0]) for resp in resps]
             else:   
                 # wait for just one node to respond but send it to all
                 n = await self.get_execution_node()
