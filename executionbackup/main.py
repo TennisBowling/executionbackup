@@ -161,6 +161,8 @@ class NodeRouter:
                 await resp.send(r[0], end_stream=True)
                 resps = await asyncio.gather(*[asyncio.create_task(node.do_request(data=req.body, json=req.json, headers=req.headers)) for node in self.alive if node != n])
                 [print(resp[0]) for resp in resps]
+                [print(resp[1]) for resp in resps]
+                [print(resp[2]) for resp in resps]
             else:   
                 # wait for just one node to respond but send it to all
                 n = await self.get_execution_node()
