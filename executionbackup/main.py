@@ -47,7 +47,7 @@ class NodeInstance:
         end = 0.0       # because otherwise we can't read it in the except block
         try:
             start = monotonic()
-            resp = await self.do_request(data='{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}', headers={'Content-type': 'application/json'})
+            resp = await self.do_request(data='{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}', json={"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}, headers={'Content-type': 'application/json'})
             end = monotonic()
             if (loads(resp[0]))['result']: # result is false if node is synced
                 await self.set_offline()
@@ -60,14 +60,14 @@ class NodeInstance:
             await self.set_offline()
             return (self, False, ((end - start) * 1000))
     
-    async def do_request(self, *, data: str, headers: Dict[str, Any]=None) -> Union[Tuple[str, int, dict], ServerOffline]:
+    async def do_request(self, *, data: str, json: dict, headers: Dict[str, Any]=None) -> Union[Tuple[str, int, dict], ServerOffline]:
         try:
             if self.is_ws:
                 await self.session.send(data)
                 resp = await self.session.recv()
                 return (resp, 200, {'Content-Encoding': 'identity', 'Content-Type': 'application/json', 'Vary': 'Origin', 'Content-Length': len(resp)}) # geth response headers include the date but most clients (probably) don't care
             else:
-                if loads(data)['method'] == 'eth_subscribe':
+                if json['method'] == 'eth_subscribe':
                     return ('{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"The method eth_subscribe does not exist/is not available"}}', 200, '{"Content-Encoding": "identity", "Content-Type": "application/json", "Vary": "Origin", "Content-Length": 117}')
                 async with self.session.post(self.url, data=data, headers=headers, timeout=3) as resp:
                     return (await resp.text(), resp.status, dict(resp.headers))
@@ -132,39 +132,53 @@ class NodeRouter:
         if ws:  # you NEED to have application/json as a header for this to work when contacting http endpoints
             if loads(ws_text)['method'] == 'engine_getPayloadV1':
                 n = await self.get_execution_node()
-                r = await n.do_request(data=req.body, headers={'Content-type': 'application/json'})
+                r = await n.do_request(data=req.body, json=req.json, headers={'Content-type': 'application/json'})
                 await ws.send(r[0])
             else:
                 # wait for one node to respond but send the request to all
                 n = await self.get_execution_node()
-                r = await n.do_request(data=req.body, headers={'Content-type': 'application/json'})
+                r = await n.do_request(data=req.body, json=req.json, headers={'Content-type': 'application/json'})
                 await ws.send(r[0])
-                [asyncio.create_task(node.do_request(data=req, headers={'Content-type': 'application/json'})) for node in self.alive if node != n]
+                [asyncio.create_task(node.do_request(data=req, json=req.json, headers={'Content-type': 'application/json'})) for node in self.alive if node != n]
 
         else:
             if req.json['method'] == 'engine_getPayloadV1':
                 n = await self.get_execution_node()
-                r = await n.do_request(data=req.body, headers=req.headers)
+                r = await n.do_request(data=req.body, json=req.json, headers=req.headers)
                 resp = await req.respond(status=r[1], headers=r[2])
                 await resp.send(r[0], end_stream=True)
-            else:
+            elif req.json['method'] == 'engine_forkchoiceUpdatedV1':
+                #resps = await asyncio.gather(*[node.do_request(data=req, json=req.json, headers=req.headers) for node in self.alive])
+                
+                #for resp in resps:
+                #    if not loads(resp[0])['result']['payloadStatus']['status'] == 'VALID':
+                #        # TODO: return SYNCING
+                #        return
+
+                n = await self.get_execution_node()
+                r = await n.do_request(data=req.body, json=req.json, headers=req.headers)
+                resp = await req.respond(status=r[1], headers=r[2])
+                await resp.send(r[0], end_stream=True)
+                [asyncio.create_task(node.do_request(data=req.body, json=req.json, headers=req.headers)) for node in self.alive if node != n]
+                print(r[0]) # professional debugging
+            else:   
                 # wait for just one node to respond but send it to all
                 n = await self.get_execution_node()
-                r = await n.do_request(data=req.body, headers=req.headers)
+                r = await n.do_request(data=req.body, json=req.json, headers=req.headers)
                 resp = await req.respond(status=r[1], headers=r[2])
                 await resp.send(r[0], end_stream=True)
-                [asyncio.create_task(node.do_request(data=req.body, headers=req.headers)) for node in self.alive if node != n]
+                [asyncio.create_task(node.do_request(data=req.body, json=req.json, headers=req.headers)) for node in self.alive if node != n]
 
 
     async def route(self, req: Request, ws, ws_text) -> None:
         # handle "normal" requests
         if ws:  # you NEED to have application/json as a header for this to work when contacting http endpoints
             n = await self.get_execution_node()
-            r = await n.do_request(data=ws_text, headers={'Content-type': 'application/json'})
+            r = await n.do_request(data=ws_text, json=req.json, headers={'Content-type': 'application/json'})
             await ws.send(r[0])
         else:
             n = await self.get_execution_node()
-            r = await n.do_request(data=req.body, headers=req.headers)
+            r = await n.do_request(data=req.body, json=req.json, headers=req.headers)
             resp = await req.respond(status=r[1], headers=r[2])
             await resp.send(r[0], end_stream=True)
             

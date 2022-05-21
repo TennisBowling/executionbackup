@@ -82,6 +82,15 @@ async def status(request: Request):
     ok = 200 if len(router.alive) > 0 else 503
     return response.json({'status': ok, 'alive': len(router.alive), 'dead': len(router.dead), 'RAM usage': (Process().memory_info()[0] / float(2 ** 20))}, status=ok)
 
+@app.route('/executionbackup/addnode', methods=['POST'])
+async def addnode(request: Request):
+    node = request.json['node']
+    inst = executionbackup.NodeInstance(node)
+    await inst.setup_session()
+    router.nodes.append(inst)
+    await router.recheck()
+    return response.json({'status': 200})
+
 @router.listener('node_online')
 async def node_online(url: str):
     logger.info(f'Node {url} is online')
