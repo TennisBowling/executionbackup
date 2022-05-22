@@ -147,22 +147,17 @@ class NodeRouter:
                 r = await n.do_request(data=req.body, json=req.json, headers=req.headers)
                 resp = await req.respond(status=r[1], headers=r[2])
                 await resp.send(r[0], end_stream=True)
+            
             elif req.json['method'] == 'engine_forkchoiceUpdatedV1':
-                #resps = await asyncio.gather(*[node.do_request(data=req, json=req.json, headers=req.headers) for node in self.alive])
+                resps = await asyncio.gather(*[node.do_request(data=req, json=req.json, headers=req.headers) for node in self.alive])
                 
-                #for resp in resps:
-                #    if not loads(resp[0])['result']['payloadStatus']['status'] == 'VALID':
-                #        # TODO: return SYNCING
-                #        return
-                # RESP IS {"jsonrpc":"2.0","id":1,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null},"payloadId":null}}
-                n = await self.get_execution_node()
-                r = await n.do_request(data=req.body, json=req.json, headers=req.headers)
-                resp = await req.respond(status=r[1], headers=r[2])
-                await resp.send(r[0], end_stream=True)
-                resps = await asyncio.gather(*[asyncio.create_task(node.do_request(data=req.body, json=req.json, headers=req.headers)) for node in self.alive if node != n])
-                [print(resp[0]) for resp in resps]
-                [print(resp[1]) for resp in resps]
-                [print(resp[2]) for resp in resps]
+                for resp in resps:
+                    if not loads(resp[0])['result']['payloadStatus']['status'] == 'VALID':
+                        resp = await req.respond(status=resp[1], headers=resp[2])
+                        await resp.send('{"jsonrpc":"2.0","id":1,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null},"payloadId":null}}', end_stream=True)  
+                        #asyncio.create_task(self.dispatch('fcu_error', ))
+                        break
+            
             else:   
                 # wait for just one node to respond but send it to all
                 n = await self.get_execution_node()
