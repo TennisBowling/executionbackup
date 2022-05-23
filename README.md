@@ -27,6 +27,18 @@ python3 lb.py --port 8000 --nodes http://node1:8545 ws://node2:8546 # etc
 ```
 And then point your CL to `http://address.of.lb:portyouchose # in the example, port 8000` (or `ws://address.of.lb:portyouchose`). Websocket requests can be sent to the lb with http nodes.
 
+## Docker
+
+Build the docker container:
+
+```
+docker build . --tag=executionbackup:latest
+```
+
+Then, run it:
+```
+docker run -p 8000:8000 executionbackup:latest --port 8000 --nodes http://node1:8545 ws://node2:8546
+```
 
 ## Support
 Contact me on discord at TennisBowling#7174
