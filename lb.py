@@ -12,6 +12,7 @@ from psutil import Process
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--nodes', nargs='+', required=True, help='Nodes to load-balance across. Example: --nodes http://localhost:8545 http://localhost:8546 \nMust be at least one.')
+parser.add_argument('--fcu_invalid_threshold', type=int, default=0.6, help='Percentage of nodes that need to respond INVALID to an fcU to be returned as INVALID instead of SYNCING. Default: 0.6')
 parser.add_argument('--port', type=int, default=8000, help='Port to run the load-balancer on.')
 parser.add_argument('--workers', type=int, default=cpu_count(), help='Number of workers to run. Default: logical cores.')
 args = parser.parse_args()
@@ -20,7 +21,7 @@ args = parser.parse_args()
 app = Sanic('router')
 logger.setLevel(logging.ERROR) # we don't want to see the sanic logs
     
-router = executionbackup.NodeRouter(args.nodes)
+router = executionbackup.NodeRouter(args.nodes, args.fcu_invalid_threshold)
 
 class coloredFormatter(logging.Formatter):
 
@@ -106,6 +107,10 @@ async def all_nodes_offline():
 @router.listener('node_error')
 async def node_error(url: str, error: str):
     logger.warning(f'Node {url} has error: {error}')
+
+@router.listener('fcU_non_majority_invalid')
+async def fcu_non_majority_invalid(INVALID_node_response: str):
+    logger.warning(f'fcU returned INVALID (non-majority): {INVALID_node_response}')
 
 @router.listener('node_router_online')
 async def node_router_online():
