@@ -1,0 +1,21 @@
+language: cpp
+
+# run cmake to generate the Makefile, then run make
+# run on linux amd64 and arm64
+
+matrix:
+  include:
+    - os: linux
+      compiler: gcc
+      version: "9.4"
+      architecture: amd64
+    - os: linux
+      compiler: gcc
+      version: "9.4"
+      architecture: arm64
+
+script:
+  - cd executionbackup-cpp
+  - cmake .
+  - make
+

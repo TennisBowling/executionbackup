@@ -1,6 +1,6 @@
+from __future__ import annotations # to typehint check_alive
 import aiohttp
 from typing import *
-from __future__ import annotations # to typehint check_alive
 import asyncio
 from . import logger
 from ujson import dumps, loads
@@ -152,11 +152,9 @@ class NodeRouter:
     # there are three possible statuses: VALID, INVALID, SYNCING (SYNCING is safe and will stall the CL)
     # ONLY return VALID when all nodes return VALID
     # if any node returns INVALID, return SYNCING
-    # if most (use self.fcU_invalid_threshold) nodes return INVLAID, return SYNCING.
     #
     # to return SYNCING, the body of the response should be: '{"jsonrpc":"2.0","id":1,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null},"payloadId":null}}'
 
-    # check if any of the responses are INVALID
     # BUT if fcU_majority returns INVALID, return it
     # if there is a resonse of INVALID and no majority, return SYNCING
     async def fcU_logic(self, resps: Tuple[Tuple[str, int, dict]]) -> Tuple[str, int, dict]:    # same reason for async as fcU_majority
@@ -181,7 +179,7 @@ class NodeRouter:
 
 
     # https://github.com/ethereum/execution-apis/blob/main/src/engine/specification.md#load-balancing-and-advanced-configurations=
-    async def do_engine_route(self, req: Request, ws, ws_text) -> None:
+    async def do_engine_route(self, req: Request, ws, ws_text: str) -> None:
         if ws:  # you NEED to have application/json as a header for this to work when contacting http endpoints
             json_ws_text = loads(ws_text)
             if json_ws_text['method'] == 'engine_getPayloadV1':

@@ -42,3 +42,8 @@ docker run -p 8000:8000 executionbackup:latest --port 8000 --nodes http://node1:
 
 ## Support
 Contact me on discord at TennisBowling#7174
+
+
+## TODO
+- Add real tests - tests right now are made by spinning an actual EE (multiple) and CL on kiln/whatever current testnet there is. While this is extremely effective - simulating actual network conditions, it is slow.
+- connection speedups to the EE (I already know how I'm planning on doing this)
