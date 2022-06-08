@@ -11,7 +11,7 @@ before_install:
   - export PATH="$HOME/usr/bin:$PATH"
   - wget https://cmake.org/files/v3.23/cmake-3.23.0-linux-x86_64.sh
   - chmod +x cmake-3.23.0-linux-x86_64.sh
-  - ./cmake-3.23.0-linux-x86_64.shchm --prefix=$HOME/usr --exclude-subdir --skip-license
+  - ./cmake-3.23.0-linux-x86_64.sh --prefix=$HOME/usr --exclude-subdir --skip-license
 
 script:
   - cd executionbackup-cpp
