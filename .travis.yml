@@ -2,14 +2,6 @@ language: cpp
 
 # run cmake to generate the Makefile, then run make
 # run on linux amd64 and arm64
-addons:
-  apt:
-    sources:
-      - george-edison55-precise-backports
-    packages:
-      - cmake-data
-      - cmake
-
 compiler:
   - clang
   - gcc
@@ -18,8 +10,8 @@ before_install:
   - mkdir $HOME/usr
   - export PATH="$HOME/usr/bin:$PATH"
   - wget https://cmake.org/files/v3.23/cmake-3.23.0-linux-x86_64.sh
-  - chmod +x cmake-3.7.2-Linux-x86_64.sh
-  - ./cmake-3.7.2-Linux-x86_64.sh --prefix=$HOME/usr --exclude-subdir --skip-license
+  - chmod +x cmake-3.23.0-linux-x86_64.sh
+  - ./cmake-3.23.0-linux-x86_64.shchm --prefix=$HOME/usr --exclude-subdir --skip-license
 
 script:
   - cd executionbackup-cpp
