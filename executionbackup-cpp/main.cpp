@@ -1,5 +1,6 @@
 #include <cpr/cpr.h>
 #include <spdlog/spdlog.h>
+//#include "Simple-Web-Server/server_http.hpp"
 #include <iostream>
 #include <string>
 #include <chrono>
@@ -8,6 +9,8 @@
 #include <unordered_map>
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
+
+std::string SYNCING_JSON = "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_syncing\",\"params\":null}";
 
 struct request_result
 {
@@ -62,7 +65,7 @@ public:
     check_alive_result check_alive()
     {
         auto start = std::chrono::high_resolution_clock::now();
-        auto response = this->do_request("{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_syncing\",\"params\":null}", cpr::Header{{"Content-Type", "application/json"}});
+        auto response = this->do_request(SYNCING_JSON, cpr::Header{{"Content-Type", "application/json"}});
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
@@ -79,7 +82,7 @@ public:
         }
     }
 
-    request_result do_request(std::string data, cpr::Header headers)
+    request_result do_request(std::string &data, cpr::Header &headers)
     {
         std::string response;
         int status;
@@ -128,7 +131,6 @@ public:
         for (auto &node : this->nodes)
         {
             results.push_back(std::async(&NodeInstance::check_alive, &node));
-            std::cout << "bruh" << std::endl;
         }
 
         // set the alive nodes to the ones that are online, and sort them by their response time
@@ -184,7 +186,7 @@ public:
 
     // send to all nodes that are alive and syncing, except for the "primary" node
     // also do it async
-    void send_to_alive_and_syncing(std::string data, cpr::Header headers, NodeInstance except_node)
+    void send_to_alive_and_syncing(std::string &data, cpr::Header &headers, NodeInstance &except_node)
     {
         for (auto &node : this->alive)
         {
@@ -200,6 +202,89 @@ public:
                 std::async(&NodeInstance::do_request, &node, data, headers);
             }
         }
+    }
+
+    // find what the response has is the most common
+    // majority must be at least fcU_invalid_threshold
+    // if not, return empty string
+    std::string fcU_majority(std::vector<request_result> &results)
+    {
+        std::map<std::string, int> counts;
+        for (auto &resp : results)
+        {
+            // check if the response is already in the map
+            if (counts.find(resp.body) == counts.end())
+            {
+                counts[resp.body] = 1;
+            }
+            else
+            {
+                counts[resp.body]++;
+            }
+        }
+
+        // find the most common response and check if it is at least fcU_invalid_threshold
+        int max_count = 0;
+        std::string max_resp;
+        for (auto &resp : counts)
+        {
+            if (resp.second > max_count)
+            {
+                max_count = resp.second;
+                max_resp = resp.first;
+            }
+        }
+        if (max_count / results.size() >= this->fcU_invalid_threshold)
+        {
+            return max_resp;
+        }
+        else
+        {
+            return "";
+        }
+    }
+
+    void send_to_alive_but_syncing(std::string data, cpr::Header headers)
+    {
+        for (auto &node : this->alive_but_syncing)
+        {
+            std::async(&NodeInstance::do_request, &node, data, headers);
+        }
+    }
+
+    /*
+    logic for forkchoiceUpdated
+    there are three possible statuses: VALID, INVALID, SYNCING (SYNCING is safe and will stall the CL)
+    ONLY return VALID when all nodes return VALID
+    if any node returns INVALID, return SYNCING
+
+    to return SYNCING, the body of the response should be: '{"jsonrpc":"2.0","id":1,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null},"payloadId":null}}'
+
+    BUT if fcU_majority returns INVALID, return it
+    if there is a resonse of INVALID and no majority, return SYNCING
+    */
+
+    request_result fcU_logic(std::vector<request_result> &resps)
+    {
+        auto maj = this->fcU_majority(resps);
+        if (json::parse(maj)["result"]["payloadStatus"]["status"] == "INVALID") // here we see if most responses are INVALID, if so, return INVALID
+        {
+            return request_result{200, maj, cpr::Header{{"Content-Type", "application/json"}, {"Content-Length", std::to_string(maj.size())}, {"Content-Type", "application/json"}}};
+        }
+
+        for (auto &resp : resps) // and here we see if just one response is INVALID, if so, return SYNCING (since it isn't a majority, we can't be sure to reject the block by returning INVALID)
+        {
+            json j = json::parse(resp.body);
+            if (j["result"]["payloadStatus"]["status"] == "INVALID" || j["result"]["payloadStatus"]["status"] == "SYNCING")
+            {
+                return request_result{resp.status, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}", resp.headers};
+            }
+        }
+
+        // if we get here, all responses are VALID
+        // send to syncing nodes using the first response
+        std::async(&NodeRouter::send_to_alive_but_syncing, this, resps[0].body, resps[0].headers);
+        return resps[0];
     }
 };
 

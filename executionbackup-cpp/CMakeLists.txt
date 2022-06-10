@@ -13,13 +13,15 @@ set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
 include(CPack)
 
 
-#set(BOOST_LIBRARYDIR C:/local/boost_1_79_0/lib)
-#find_package(Boost REQUIRED)
-#target_include_directories(executionbackup-cpp PRIVATE ${Boost_INCLUDE_DIRS})
-#target_link_libraries(executionbackup-cpp ${Boost_LIBRARY})    
-
-
 include(FetchContent)
+FetchContent_Declare(
+  asiocmake
+  GIT_REPOSITORY "https://github.com/OlivierLDff/asio.cmake"
+  GIT_TAG        "main"
+)
+FetchContent_MakeAvailable(asiocmake)
+target_link_libraries(executionbackup-cpp PRIVATE asio::asio)
+
 FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git
                          GIT_TAG db351ffbbadc6c4e9239daaa26e9aefa9f0ec82d)
 FetchContent_MakeAvailable(cpr)
