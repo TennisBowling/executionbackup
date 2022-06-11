@@ -1,16 +1,19 @@
 #include <cpr/cpr.h>
 #include <spdlog/spdlog.h>
-//#include "Simple-Web-Server/server_http.hpp"
+#include <nlohmann/json.hpp>
+#include "util.hpp"
+#include "Simple-Web-Server/server_http.hpp"
 #include <iostream>
 #include <string>
 #include <chrono>
 #include <vector>
 #include <future>
 #include <unordered_map>
-#include <nlohmann/json.hpp>
 using json = nlohmann::json;
+using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
 std::string SYNCING_JSON = "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_syncing\",\"params\":null}";
+cpr::Header APPLICATIONJSON = cpr::Header{{"Content-Type", "application/json"}};
 
 struct request_result
 {
@@ -65,7 +68,7 @@ public:
     check_alive_result check_alive()
     {
         auto start = std::chrono::high_resolution_clock::now();
-        auto response = this->do_request(SYNCING_JSON, cpr::Header{{"Content-Type", "application/json"}});
+        auto response = this->do_request(SYNCING_JSON, APPLICATIONJSON);
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
@@ -82,7 +85,7 @@ public:
         }
     }
 
-    request_result do_request(std::string &data, cpr::Header &headers)
+    request_result do_request(std::string data, cpr::Header headers)
     {
         std::string response;
         int status;
@@ -186,21 +189,37 @@ public:
 
     // send to all nodes that are alive and syncing, except for the "primary" node
     // also do it async
-    void send_to_alive_and_syncing(std::string &data, cpr::Header &headers, NodeInstance &except_node)
+    void send_to_alive_and_alivesyncing(std::string data, cpr::Header headers, NodeInstance except_node)
     {
         for (auto &node : this->alive)
         {
             if (node.url_string != except_node.url_string)
             {
-                std::async(&NodeInstance::do_request, &node, data, headers);
+                std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
             }
         }
         for (auto &node : this->alive_but_syncing)
         {
             if (node.url_string != except_node.url_string)
             {
-                std::async(&NodeInstance::do_request, &node, data, headers);
+                std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
             }
+        }
+    }
+
+    void send_to_alive_but_syncing(std::string data, cpr::Header headers)
+    {
+        for (auto &node : this->alive_but_syncing)
+        {
+            std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
+        }
+    }
+
+    void send_to_alive(std::string data, cpr::Header headers)
+    {
+        for (auto &node : this->alive)
+        {
+            std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
         }
     }
 
@@ -244,14 +263,6 @@ public:
         }
     }
 
-    void send_to_alive_but_syncing(std::string data, cpr::Header headers)
-    {
-        for (auto &node : this->alive_but_syncing)
-        {
-            std::async(&NodeInstance::do_request, &node, data, headers);
-        }
-    }
-
     /*
     logic for forkchoiceUpdated
     there are three possible statuses: VALID, INVALID, SYNCING (SYNCING is safe and will stall the CL)
@@ -283,8 +294,41 @@ public:
 
         // if we get here, all responses are VALID
         // send to syncing nodes using the first response
-        std::async(&NodeRouter::send_to_alive_but_syncing, this, resps[0].body, resps[0].headers);
+        std::async(std::launch::async, &NodeRouter::send_to_alive_but_syncing, this, resps[0].body, resps[0].headers);
         return resps[0];
+    }
+
+    request_result do_engine_route(std::string &data, json &j, cpr::Header &headers)
+    {
+        if (j["method"] == "engine_getPayloadV1") // getPayloadV1 is for getting a block to be proposed, so no use in getting from multiple nodes
+        {
+            auto node = this->get_execution_node();
+            return node.do_request(data, headers);
+        }
+        else if (j["method"] == "engine_forkchoiceUpdatedV1")
+        {
+            std::vector<std::future<request_result>> futures;
+            for (auto &node : this->alive)
+            {
+                futures.push_back(std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers)); // call do_request on each node
+            }
+            std::vector<request_result> resps = join_all_async<request_result>(futures); // wait for all responses to come back
+            return this->fcU_logic(resps);                                               // do the fcU_logic
+        }
+        else
+        {
+            // wait for the primary node's response, but send to all other nodes
+            auto node = this->get_execution_node();
+            auto fut = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
+            std::async(std::launch::async, &NodeRouter::send_to_alive_and_alivesyncing, this, data, headers, node);
+            return fut.get();
+        }
+    }
+
+    request_result route(std::string &data, cpr::Header &headers)
+    {
+        auto node = this->get_execution_node();
+        return node.do_request(data, headers);
     }
 };
 
@@ -296,7 +340,30 @@ int main()
     urls.push_back("http://192.168.86.83:8545");
     urls.push_back("http://192.168.86.36:8545");
 
+    HttpServer server;
+    server.config.port = 8000;
+
     // create a node router
     NodeRouter router(urls, 3);
     router.recheck();
+
+    server.resource["/"]["POST"] = [&router](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request)
+    {
+        auto body = request->content.string();
+        auto headers = multimap_to_cpr_header(request->header);
+        json j = json::parse(body);
+        if (j["method"].get<std::string>().starts_with("engine_"))
+        {
+            auto resp = router.do_engine_route(body, j, headers);
+
+            response->write(status_code_map[resp.status], resp.body, cpr_header_to_multimap(resp.headers));
+        }
+        else
+        {
+            auto resp = router.route(body, headers);
+            response->write(status_code_map[resp.status], resp.body, cpr_header_to_multimap(resp.headers));
+        }
+    };
+
+    server.start();
 }

@@ -6,22 +6,22 @@ project(executionbackup-cpp VERSION 0.1.0)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 add_executable(executionbackup-cpp main.cpp)
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
 include(CPack)
 
+target_include_directories(executionbackup-cpp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_subdirectory(boost-cmake)
+target_link_libraries(executionbackup-cpp PUBLIC Boost::filesystem)
+target_link_libraries(executionbackup-cpp PUBLIC Boost::boost)
 
 include(FetchContent)
-FetchContent_Declare(
-  asiocmake
-  GIT_REPOSITORY "https://github.com/OlivierLDff/asio.cmake"
-  GIT_TAG        "main"
-)
-FetchContent_MakeAvailable(asiocmake)
-target_link_libraries(executionbackup-cpp PRIVATE asio::asio)
-
 FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git
                          GIT_TAG db351ffbbadc6c4e9239daaa26e9aefa9f0ec82d)
 FetchContent_MakeAvailable(cpr)
