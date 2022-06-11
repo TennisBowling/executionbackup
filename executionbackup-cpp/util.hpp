@@ -37,10 +37,3 @@ SimpleWeb::CaseInsensitiveMultimap cpr_header_to_multimap(cpr::Header &headers)
     }
     return h;
 }
-
-std::unordered_map<int, SimpleWeb::StatusCode> status_code_map = {
-    {200, SimpleWeb::StatusCode::success_ok},
-    {400, SimpleWeb::StatusCode::client_error_bad_request},
-    {404, SimpleWeb::StatusCode::client_error_not_found},
-    {401, SimpleWeb::StatusCode::client_error_unauthorized},
-};

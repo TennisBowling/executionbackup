@@ -8,7 +8,6 @@
 #include <chrono>
 #include <vector>
 #include <future>
-#include <unordered_map>
 using json = nlohmann::json;
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
@@ -88,7 +87,11 @@ public:
     request_result do_request(std::string data, cpr::Header headers)
     {
         std::string response;
+        cpr::Header response_headers;
         int status;
+        // replace whatever content encoding accept there is with identity
+        headers.erase("Accept-Encoding");
+        headers.emplace("Accept-Encoding", "identity");
         try
         {
             auto r = cpr::Post(
@@ -97,13 +100,14 @@ public:
                 headers);
             response = r.text;
             status = r.status_code;
+            response_headers = r.header;
         }
         catch (const cpr::Error &e)
         {
             this->set_offline();
             std::cerr << "Error: " << e.message << std::endl;
         }
-        return request_result{status, response, headers};
+        return request_result{status, response, response_headers};
     }
 };
 
@@ -341,14 +345,15 @@ int main()
     urls.push_back("http://192.168.86.36:8545");
 
     HttpServer server;
-    server.config.port = 8000;
+    server.config.port = 8001;
 
     // create a node router
     NodeRouter router(urls, 3);
     router.recheck();
 
-    server.resource["/"]["POST"] = [&router](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request)
+    server.resource["/route"]["POST"] = [&router](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request)
     {
+        // response->close_connection_after_response = true;
         auto body = request->content.string();
         auto headers = multimap_to_cpr_header(request->header);
         json j = json::parse(body);
@@ -356,12 +361,12 @@ int main()
         {
             auto resp = router.do_engine_route(body, j, headers);
 
-            response->write(status_code_map[resp.status], resp.body, cpr_header_to_multimap(resp.headers));
+            response->write(resp.body, cpr_header_to_multimap(resp.headers));
         }
         else
         {
             auto resp = router.route(body, headers);
-            response->write(status_code_map[resp.status], resp.body, cpr_header_to_multimap(resp.headers));
+            response->write(resp.body, cpr_header_to_multimap(resp.headers));
         }
     };
 
