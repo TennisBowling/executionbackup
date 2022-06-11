@@ -302,7 +302,7 @@ public:
         return resps[0];
     }
 
-    request_result do_engine_route(std::string &data, json &j, cpr::Header &headers)
+    request_result do_engine_route(std::string data, json j, cpr::Header headers)
     {
         if (j["method"] == "engine_getPayloadV1") // getPayloadV1 is for getting a block to be proposed, so no use in getting from multiple nodes
         {
@@ -359,14 +359,19 @@ int main()
         json j = json::parse(body);
         if (j["method"].get<std::string>().starts_with("engine_"))
         {
-            auto resp = router.do_engine_route(body, j, headers);
-
-            response->write(resp.body, cpr_header_to_multimap(resp.headers));
+            // call the router's engine route function and send the response back asynchronously
+            std::async(std::launch::async, [&router, &body, &headers, &j, &response, &request]()
+                       {
+                           auto resp = router.do_engine_route(body, j, headers);
+                            response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
         }
         else
         {
-            auto resp = router.route(body, headers);
-            response->write(resp.body, cpr_header_to_multimap(resp.headers));
+            // call the router's route function and send the response back asynchronously
+            std::async(std::launch::async, [&router, &body, &headers, &response, &request]()
+                       {
+                           auto resp = router.route(body, headers);
+                            response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
         }
     };
 
