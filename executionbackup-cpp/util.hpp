@@ -4,6 +4,9 @@
 #include <future>
 #include <unordered_map>
 #include <cpr/cpr.h>
+#include <boost/program_options.hpp>
+#include <boost/config.hpp>
+#include <spdlog/spdlog.h>
 #include "Simple-Web-Server/server_http.hpp"
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
@@ -36,4 +39,54 @@ SimpleWeb::CaseInsensitiveMultimap cpr_header_to_multimap(cpr::Header &headers)
         h.emplace(header.first, header.second);
     }
     return h;
+}
+
+boost::program_options::variables_map parse_args(int argc, char *argv[])
+{
+    // we need to accept the following arguments:
+    // -p, --port <port>
+    // --nodes <nodes> (comma separated list of nodes)
+    // --fcu-invalid-threshold <threshold>
+    // -h, --help
+    // -v, --version
+
+    boost::program_options::options_description desc("Allowed options");
+    desc.add_options()
+
+        ("help,h", "produce help message")                                                                                 // help message
+        ("version,v", "print version")                                                                                     // version message
+        ("port,p", boost::program_options::value<int>()->implicit_value(8000), "port to listen on")                        // port to listen on
+        ("nodes,n", boost::program_options::value<std::string>(), "comma separated list of nodes")                         // comma separated list of nodes
+        ("fcu-invalid-threshold,t", boost::program_options::value<double>()->implicit_value(0.6), "fcU invalid threshold") // fcU invalid threshold
+        ;
+
+    boost::program_options::variables_map vm;
+    boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
+    boost::program_options::notify(vm);
+
+    if (vm.count("help"))
+    {
+        std::cout << desc << std::endl;
+        exit(0);
+    }
+
+    if (vm.count("version"))
+    {
+        std::cout << "executionbackup-cpp version 0.1 BETA\n";
+        std::cout << "Compiled with " << BOOST_COMPILER << std::endl;
+        exit(0);
+    }
+
+    if (vm.count("port") == 0)
+    {
+        spdlog::warn("no port specified, using default port 8000");
+    }
+
+    if (vm.count("nodes") == 0)
+    {
+        spdlog::critical("no nodes specified, exiting");
+        exit(1);
+    }
+
+    return vm;
 }

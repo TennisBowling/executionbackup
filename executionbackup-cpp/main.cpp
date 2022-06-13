@@ -199,14 +199,14 @@ public:
         {
             if (node.url_string != except_node.url_string)
             {
-                std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
+                auto _ = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
             }
         }
         for (auto &node : this->alive_but_syncing)
         {
             if (node.url_string != except_node.url_string)
             {
-                std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
+                auto _ = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
             }
         }
     }
@@ -215,7 +215,7 @@ public:
     {
         for (auto &node : this->alive_but_syncing)
         {
-            std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
+            auto _ = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
         }
     }
 
@@ -223,7 +223,7 @@ public:
     {
         for (auto &node : this->alive)
         {
-            std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
+            auto _ = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
         }
     }
 
@@ -298,7 +298,7 @@ public:
 
         // if we get here, all responses are VALID
         // send to syncing nodes using the first response
-        std::async(std::launch::async, &NodeRouter::send_to_alive_but_syncing, this, resps[0].body, resps[0].headers);
+        auto _ = std::async(std::launch::async, &NodeRouter::send_to_alive_but_syncing, this, resps[0].body, resps[0].headers);
         return resps[0];
     }
 
@@ -324,7 +324,7 @@ public:
             // wait for the primary node's response, but send to all other nodes
             auto node = this->get_execution_node();
             auto fut = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
-            std::async(std::launch::async, &NodeRouter::send_to_alive_and_alivesyncing, this, data, headers, node);
+            auto _ = std::async(std::launch::async, &NodeRouter::send_to_alive_and_alivesyncing, this, data, headers, node);
             return fut.get();
         }
     }
@@ -336,13 +336,15 @@ public:
     }
 };
 
-int main()
+int main(int argc, char *argv[])
 {
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%^%l%$] - %v");
-    // make a vector of urls
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%^%l%$] - %v"); // nice style that i like
+
+    // parse arguments
+    auto vm = parse_args(argc, argv);
+    // get vm["nodes"] into a vector of strings
     std::vector<std::string> urls;
-    urls.push_back("http://192.168.86.83:8545");
-    urls.push_back("http://192.168.86.36:8545");
+    std::cout << "nodes: " << vm["nodes"].as<std::string>() << std::endl;
 
     HttpServer server;
     server.config.port = 8001;
@@ -360,18 +362,18 @@ int main()
         if (j["method"].get<std::string>().starts_with("engine_"))
         {
             // call the router's engine route function and send the response back asynchronously
-            std::async(std::launch::async, [&router, &body, &headers, &j, &response, &request]()
-                       {
-                           auto resp = router.do_engine_route(body, j, headers);
-                            response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
+            auto _ = std::async(std::launch::async, [&router, &body, &headers, &j, &response, &request]()
+                                {
+                                    auto resp = router.do_engine_route(body, j, headers);
+                                    response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
         }
         else
         {
             // call the router's route function and send the response back asynchronously
-            std::async(std::launch::async, [&router, &body, &headers, &response, &request]()
-                       {
-                           auto resp = router.route(body, headers);
-                            response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
+            auto _ = std::async(std::launch::async, [&router, &body, &headers, &response, &request]()
+                                {
+                                    auto resp = router.route(body, headers);
+                                    response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
         }
     };
 
