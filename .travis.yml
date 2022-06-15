@@ -1,7 +1,13 @@
 language: cpp
 
-# run cmake to generate the Makefile, then run make
-# run on linux amd64 and arm64
+dist: focal
+
+addons:
+  apt:
+    packages:
+    - libboost-dev
+    - libboost-program-options-dev
+
 compiler:
   - clang
   - gcc

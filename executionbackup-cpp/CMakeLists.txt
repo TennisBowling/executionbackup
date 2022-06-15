@@ -16,8 +16,9 @@ include(CPack)
 
 target_include_directories(executionbackup-cpp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# add_subdirectory(boost-cmake)  # when installing on windows, uncomment this line
-find_package(Boost REQUIRED COMPONENTS program_options) # and also when installing on windows, comment out this line
+add_subdirectory(boost-cmake) # when installing on windows, uncomment this line
+
+# find_package(Boost REQUIRED COMPONENTS program_options) # and also when installing on windows, comment out this line
 target_link_libraries(executionbackup-cpp PUBLIC Boost::boost)
 target_link_libraries(executionbackup-cpp PUBLIC Boost::program_options)
 
