@@ -14,7 +14,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: cd
-      run: ls
+      run: cd executionbackup-cpp && ls
     - name: make
       run: make
     - name: version
