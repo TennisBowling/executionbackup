@@ -118,10 +118,10 @@ public:
     std::vector<NodeInstance> alive;
     std::vector<NodeInstance> dead;
     std::vector<NodeInstance> alive_but_syncing;
-    int fcU_invalid_threshold;
+    double fcU_invalid_threshold;
     int index;
 
-    NodeRouter(std::vector<std::string> urls, int fcU_invalid_threshold)
+    NodeRouter(std::vector<std::string> urls, double fcU_invalid_threshold)
     {
         this->fcU_invalid_threshold = fcU_invalid_threshold;
         this->index = 0;
@@ -344,14 +344,44 @@ int main(int argc, char *argv[])
     auto vm = parse_args(argc, argv);
     // get vm["nodes"] into a vector of strings
     std::vector<std::string> urls;
-    std::cout << "nodes: " << vm["nodes"].as<std::string>() << std::endl;
+    csv_to_vec(vm["nodes"].as<std::string>(), urls);
+
+    int port;
+
+    if (vm.count("port") == 0)
+    {
+        port = 8000;
+    }
+    else
+    {
+        port = vm["port"].as<int>();
+    }
+
+    double fcuinvalidthreshold;
+
+    if (vm.count("fcu-invalid-threshold") == 0)
+    {
+        fcuinvalidthreshold = 0.6;
+    }
+    else
+    {
+        fcuinvalidthreshold = vm["fcu-invalid-threshold"].as<double>();
+    }
 
     HttpServer server;
-    server.config.port = 8001;
+    server.config.port = port;
 
     // create a node router
-    NodeRouter router(urls, 3);
-    router.recheck();
+    NodeRouter router(urls, fcuinvalidthreshold);
+
+    // call recheck every 30s
+    auto _ = std::async(std::launch::async, [&router]()
+                        {
+                            while (true)
+                            {
+                                std::this_thread::sleep_for(std::chrono::seconds(30));
+                                router.recheck();
+                            } });
 
     server.resource["/route"]["POST"] = [&router](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request)
     {

@@ -20,6 +20,7 @@ target_include_directories(executionbackup-cpp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR
 add_subdirectory(boost-cmake)
 target_link_libraries(executionbackup-cpp PUBLIC Boost::filesystem)
 target_link_libraries(executionbackup-cpp PUBLIC Boost::boost)
+target_link_libraries(executionbackup-cpp PUBLIC Boost::program_options)
 
 include(FetchContent)
 FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git

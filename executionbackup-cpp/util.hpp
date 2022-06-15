@@ -41,6 +41,16 @@ SimpleWeb::CaseInsensitiveMultimap cpr_header_to_multimap(cpr::Header &headers)
     return h;
 }
 
+void csv_to_vec(std::string csv, std::vector<std::string> &vec)
+{
+    std::stringstream ss(csv);
+    std::string item;
+    while (std::getline(ss, item, ','))
+    {
+        vec.push_back(item);
+    }
+}
+
 boost::program_options::variables_map parse_args(int argc, char *argv[])
 {
     // we need to accept the following arguments:
@@ -53,11 +63,11 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
     boost::program_options::options_description desc("Allowed options");
     desc.add_options()
 
-        ("help,h", "produce help message")                                                                                 // help message
-        ("version,v", "print version")                                                                                     // version message
-        ("port,p", boost::program_options::value<int>()->implicit_value(8000), "port to listen on")                        // port to listen on
-        ("nodes,n", boost::program_options::value<std::string>(), "comma separated list of nodes")                         // comma separated list of nodes
-        ("fcu-invalid-threshold,t", boost::program_options::value<double>()->implicit_value(0.6), "fcU invalid threshold") // fcU invalid threshold
+        ("help,h", "produce help message")                                                              // help message
+        ("version,v", "print version")                                                                  // version message
+        ("port,p", boost::program_options::value<int>(), "port to listen on")                           // port to listen on
+        ("nodes,n", boost::program_options::value<std::string>(), "comma separated list of nodes")      // comma separated list of nodes
+        ("fcu-invalid-threshold,fcu", boost::program_options::value<double>(), "fcU invalid threshold") // fcU invalid threshold
         ;
 
     boost::program_options::variables_map vm;
@@ -77,15 +87,15 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         exit(0);
     }
 
-    if (vm.count("port") == 0)
-    {
-        spdlog::warn("no port specified, using default port 8000");
-    }
-
     if (vm.count("nodes") == 0)
     {
         spdlog::critical("no nodes specified, exiting");
         exit(1);
+    }
+
+    if (vm.count("port") == 0)
+    {
+        spdlog::warn("no port specified, using default port 8000");
     }
 
     return vm;
