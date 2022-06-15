@@ -8,9 +8,6 @@ addons:
     - libboost-dev
     - libboost-program-options-dev
 
-compiler:
-  - clang
-  - gcc
 
 before_install:
   - mkdir $HOME/usr
