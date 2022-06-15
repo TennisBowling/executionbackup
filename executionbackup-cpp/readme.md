@@ -37,7 +37,6 @@ Clone:
 git clone --recursive https://github.com/tennisbowling/executionbackup.git
 cd executionbackup/executionbackup-cpp
 ```
-Then open `CMakeLists.txt` and uncomment line 19, and comment out line 20. These should have comments.
 
 Then build:
 ```bash
