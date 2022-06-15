@@ -1,0 +1,22 @@
+name: Compile
+
+on:
+  push:
+    branches: [ $default-branch ]
+  pull_request:
+    branches: [ $default-branch ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: cd
+      run: cd executionbackup-cpp
+    - name: make
+      run: make
+    - name: version
+      run: bin/executionbackup-cpp --version
+
