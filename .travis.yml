@@ -2,11 +2,11 @@ language: cpp
 
 dist: focal
 
-addons:
-  apt:
-    packages:
-    - libboost-dev
-    - libboost-program-options-dev
+#addons:
+#  apt:
+#    packages:
+#    - libboost-dev
+#    - libboost-program-options-dev
 
 
 before_install:
@@ -20,3 +20,4 @@ before_install:
 script:
   - cd executionbackup-cpp
   - make
+  - bin/executionbackup-cpp --version

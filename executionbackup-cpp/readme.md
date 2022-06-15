@@ -40,7 +40,8 @@ cd executionbackup/executionbackup-cpp
 
 Then build:
 ```bash
-cmake --config Release --build .
+cmake -S . -DCMAKE_BUILD_TYPE=Release
+cmake --build . --config Release
 ```
 
 Binaries will be in the `bin` folder
