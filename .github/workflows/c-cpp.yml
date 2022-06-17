@@ -93,7 +93,7 @@ jobs:
       run: cmake --build . --config Release
 
     - name: strip
-      run: ls bin/ && strip -s bin/executionbackup.*
+      run: ls bin/ && strip -s bin/executionbackup*
 
     - name: Pack
       working-directory: bin
