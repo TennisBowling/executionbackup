@@ -96,7 +96,7 @@ jobs:
       run: strip -s bin/*
 
     - name: Pack
-      working-directory: instdir
+      working-directory: bin
       run: cmake -E tar cfv ../${{ matrix.config.artifact }} --format=7zip .
 
 
