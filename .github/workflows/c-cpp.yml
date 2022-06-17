@@ -91,9 +91,10 @@ jobs:
 
     - name: build
       run: cmake --build . --config Release
+      env: CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE: ${{ matrix.config.artifact }}
 
     - name: strip
-      run: ls bin/ && strip -s bin/executionbackup*
+      run: strip -s bin/executionbackup*
 
     - name: Pack
       working-directory: bin
