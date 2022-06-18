@@ -7,6 +7,8 @@ env:
   BUILD_TYPE: Release
   CCACHE_VERSION: 4.6
 
+shell: bash
+
 jobs:
   build:
     name: ${{ matrix.config.name }}
@@ -94,7 +96,7 @@ jobs:
       env:
         CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE: .
 
-    - name: strip
+    - name: Strip
       run: |
         if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
           strip -s bin/executionbackup
