@@ -95,7 +95,11 @@ jobs:
         CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE: .
 
     - name: strip
-      run: ls && strip -s bin/{0}
+      run: |
+        if ["$RUNNER_OS" == "Linux"]; then
+          strip -s bin/executionbackup
+        elseif ["$RUNNER_OS" == "Windows"]; then
+          strip -s bin/executionbackup.exe
 
     - name: Pack
       working-directory: bin
