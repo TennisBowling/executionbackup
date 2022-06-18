@@ -90,8 +90,7 @@ jobs:
       run: cmake -S . -DCMAKE_BUILD_TYPE=Release
 
     - name: build
-      run: cmake --build . --config Release
-      env: CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE: ${{ matrix.config.artifact }}
+      run: cmake --build . --config Release -D CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE=. && ls
 
     - name: strip
       run: strip -s bin/executionbackup*
