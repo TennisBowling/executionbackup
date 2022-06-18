@@ -95,7 +95,7 @@ jobs:
         CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE: .
 
     - name: strip
-      run: ls && strip -s bin/executionbacku*
+      run: ls && strip -s bin/{0}
 
     - name: Pack
       working-directory: bin
