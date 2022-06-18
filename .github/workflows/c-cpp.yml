@@ -87,7 +87,7 @@ jobs:
         execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvf ./ccache.tar.xz)
 
     - name: configure
-      run: cmake -S -DCMAKE_BUILD_TYPE=Release . 
+      run: cmake -S . -DCMAKE_BUILD_TYPE=Release
 
     - name: build
       run: cmake -DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE=. --build . --config Release && ls
