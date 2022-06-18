@@ -96,9 +96,9 @@ jobs:
 
     - name: strip
       run: |
-        if [ "$RUNNER_OS" == "Linux" ]; then
+        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
           strip -s bin/executionbackup
-        elseif [ "$RUNNER_OS" == "Windows" ]; then
+        elif [ "$RUNNER_OS" == "Windows" ]; then
           strip -s bin/executionbackup.exe
         fi
 
