@@ -90,7 +90,7 @@ jobs:
       run: cmake -S . -DCMAKE_BUILD_TYPE=Release
 
     - name: build
-      run: cmake -DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE=. --build . --config Release && ls
+      run: cmake --build . -DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE=. --config Release && ls
 
     - name: strip
       run: strip -s bin/executionbackup*
