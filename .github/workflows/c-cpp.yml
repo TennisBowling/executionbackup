@@ -91,7 +91,8 @@ jobs:
 
     - name: build
       run: cmake --build . --config Release
-      env: CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE=.
+      env:
+        CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE: .
 
     - name: strip
       run: strip -s bin/executionbackup*
