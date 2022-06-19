@@ -98,21 +98,8 @@ jobs:
       env:
         CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE: .
 
-    - name: Version
-      run: |
-        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-          bin/executionbackup --version && ls -l . && ls -l bin
-        elif [ "$RUNNER_OS" == "Windows" ]; then
-          bin/executionbackup.exe --version && ls -l . && ls -l bin
-        fi
-
     - name: Strip
-      run: |
-        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-          strip -s ./bin/executionbackup
-        elif [ "$RUNNER_OS" == "Windows" ]; then
-          strip -s ./bin/executionbackup.exe
-        fi
+      run: cmake --install build --prefix instdir --strip
 
     - name: Pack
       working-directory: bin
