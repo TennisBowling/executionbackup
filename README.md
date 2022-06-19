@@ -9,6 +9,9 @@ It has been tested and are working on Phase 0, as well as on merged testnets (ki
 
 ## Running
 
+### Pre-Built Binaries
+Pre-Built Binaries are provided under the github realease.
+
 ### Linux
 First, install the requirements:
 
