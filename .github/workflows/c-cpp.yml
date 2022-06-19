@@ -98,12 +98,20 @@ jobs:
       env:
         CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE: .
 
+    - name: Version
+      run: |
+        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
+          bin/executionbackup --version
+        elif [ "$RUNNER_OS" == "Windows" ]; then
+          bin/executionbackup.exe --version
+        fi
+
     - name: Strip
       run: |
         if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-          strip -s bin/executionbackup
+          strip -s ./bin/executionbackup
         elif [ "$RUNNER_OS" == "Windows" ]; then
-          strip -s bin/executionbackup.exe
+          strip -s ./bin/executionbackup.exe
         fi
 
     - name: Pack
