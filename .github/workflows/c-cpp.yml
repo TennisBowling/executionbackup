@@ -264,10 +264,6 @@ jobs:
             os: ubuntu-latest
           }
         - {
-            name: "Windows Latest MinGW", artifact: "Windows-MinGW.zip",
-            os: ubuntu-latest
-          }
-        - {
             name: "Ubuntu Latest GCC", artifact: "Linux.zip",
             os: ubuntu-latest
           }
