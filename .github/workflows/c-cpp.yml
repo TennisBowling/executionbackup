@@ -101,9 +101,9 @@ jobs:
     - name: Version
       run: |
         if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-          bin/executionbackup --version
+          bin/executionbackup --version && ls -l . && ls -l bin
         elif [ "$RUNNER_OS" == "Windows" ]; then
-          bin/executionbackup.exe --version
+          bin/executionbackup.exe --version && ls -l . && ls -l bin
         fi
 
     - name: Strip
