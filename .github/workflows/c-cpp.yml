@@ -7,7 +7,9 @@ env:
   BUILD_TYPE: Release
   CCACHE_VERSION: 4.6
 
-shell: bash
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build:
