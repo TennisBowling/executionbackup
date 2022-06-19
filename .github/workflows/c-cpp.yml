@@ -202,6 +202,7 @@ jobs:
         endif()
     
     - name: Install Strip
+      shell: bash
       run: |
         if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
           sudo cmake --install build --prefix instdir --strip
