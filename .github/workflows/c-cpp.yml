@@ -213,6 +213,7 @@ jobs:
         elif [ "$RUNNER_OS" == "Windows" ]; then
           cmake --install build --prefix instdir --strip
         fi
+        ls instdir && ls build
 
 
     - name: Pack
