@@ -1,6 +1,6 @@
-[submodule "executionbackup-cpp/boost-cmake"]
-	path = executionbackup-cpp/boost-cmake
-	url = https://github.com/ClausKlein/boost-cmake.git
-[submodule "executionbackup-cpp/Simple-Web-Server"]
-	path = executionbackup-cpp/Simple-Web-Server
+[submodule "Simple-Web-Server"]
+	path = Simple-Web-Server
 	url = https://gitlab.com/eidheim/Simple-Web-Server.git
+[submodule "boost-cmake"]
+	path = boost-cmake
+	url = https://github.com/ClausKlein/boost-cmake.git
