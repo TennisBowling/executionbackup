@@ -214,7 +214,7 @@ jobs:
     #    fi
 
     - name: Pack
-      working-directory: build
+      working-directory: build/executionbackup
       if: matrix.config.artifact != 0
       shell: bash
       run: |
