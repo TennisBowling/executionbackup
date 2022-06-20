@@ -231,9 +231,9 @@ jobs:
       run: |
         mv build/bin/* ${{ matrix.config.artifact }}
 
-    #- name: Pack
-    #  #working-directory: instdir
-    #  run: cmake -E tar cfv ../${{ matrix.config.artifact }} --format=zip .
+    - name: Pack
+      #working-directory: instdir
+      run: cmake -E tar cfv ../${{ matrix.config.artifact }} --format=zip .
 
 
     - name: Upload
