@@ -207,16 +207,20 @@ jobs:
           message(FATAL_ERROR "Running tests failed!")
         endif()
     
-    - name: Install Strip
+    #- name: Install Strip
+    #  shell: bash
+    #  run: |
+    #    if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
+    #      sudo cmake --install build --prefix instdir --strip
+    #    elif [ "$RUNNER_OS" == "Windows" ]; then
+    #      cmake --install build --prefix instdir --strip
+    #    fi
+    #    ls instdir && echo "\n" && ls build
+
+    - name: Move to artifacts
       shell: bash
       run: |
-        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-          sudo cmake --install build --prefix instdir --strip
-        elif [ "$RUNNER_OS" == "Windows" ]; then
-          cmake --install build --prefix instdir --strip
-        fi
-        ls instdir && echo "\n" && ls build
-
+        mv build/bin/* ${{ matrix.config.artifact }}
 
     - name: Pack
       working-directory: instdir
