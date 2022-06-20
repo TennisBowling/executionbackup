@@ -7,11 +7,11 @@ project(executionbackup)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 add_executable(executionbackup main.cpp)
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
-set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
+
+# set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
 include(CPack)
 
 # target_include_directories(executionbackup PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -35,4 +35,4 @@ FetchContent_Declare(spdlog GIT_REPOSITORY https://github.com/gabime/spdlog.git
 FetchContent_MakeAvailable(spdlog)
 target_link_libraries(executionbackup PRIVATE spdlog::spdlog_header_only)
 
-install(TARGETS executionbackup RUNTIME)
+install(TARGETS executionbackup RUNTIME DESTINATION bin)
