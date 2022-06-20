@@ -218,11 +218,13 @@ jobs:
       if: matrix.config.artifact != 0
       shell: bash
       run: |
+          ls -l
           if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
             sudo cpack ${{ matrix.config.cpack_flags }}
           elif [ "$RUNNER_OS" == "Windows" ]; then
             cpack ${{ matrix.config.cpack_flags }}
           fi
+          ls -l
 
 
     - name: Upload
