@@ -3,7 +3,7 @@ name: CMake Build Matrix
 on: 
   push:
     tags:
-    - "v*"
+    - "*"
     branches:
      - "*"
   pull_request:
@@ -23,31 +23,24 @@ jobs:
       matrix:
         config:
         - {
-            name: "Windows Latest MSVC", artifact: "Windows-MSVC",
+            name: "Windows Latest MSVC", artifact: "Windows-MSVC.7z",
             os: windows-latest,
             cc: "cl", cxx: "cl",
             environment_script: "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat"
           }
-        #- {
-        #    name: "Ubuntu Latest GCC for ARM", artifact: "Linux-Arm.zip",
-        #    os: ubuntu-latest,
-        #    cc: "gcc", cxx: "g++"
-        #  }
         - {
-            name: "Ubuntu Latest GCC", artifact: "Linux",
+            name: "Ubuntu Latest GCC", artifact: "Linux.7z",
             os: ubuntu-latest,
             cc: "gcc", cxx: "g++"
           }
         - {
-            name: "macOS Latest Clang", artifact: "macOS",
+            name: "macOS Latest Clang", artifact: "macOS.7z",
             os: macos-latest,
             cc: "clang", cxx: "clang++"
           }
 
     steps:
     - uses: actions/checkout@v2
-      with:
-        submodules: true
 
     - name: Download Ninja and CMake
       shell: cmake -P {0}
@@ -206,34 +199,13 @@ jobs:
           message("::error::${test_results}")
           message(FATAL_ERROR "Running tests failed!")
         endif()
-    
-    #- name: Install Strip
-    #  shell: bash
-    #  run: |
-    #    if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-    #      sudo cmake --install build --prefix instdir --strip
-    #    elif [ "$RUNNER_OS" == "Windows" ]; then
-    #      cmake --install build --prefix instdir --strip
-    #    fi
-    #    ls instdir && echo "\n" && ls build
-  
-    - name: Version
-      shell: bash
-      run: |
-        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-          ./build/bin/executionbackup --version
-        elif [ "$RUNNER_OS" == "Windows" ]; then
-          build/bin/executionbackup.exe --version
-        fi
+    - name: Install Strip
+      run: cmake --install build --prefix instdir --strip
 
-    - name: Move to artifacts
-      shell: bash
-      run: |
-        mv build/bin/* ${{ matrix.config.artifact }}
 
     - name: Pack
-      #working-directory: instdir
-      run: cmake -E tar cfv ../${{ matrix.config.artifact }} --format=zip .
+      working-directory: instdir
+      run: cmake -E tar cfv ../${{ matrix.config.artifact }} --format=7zip .
 
 
     - name: Upload
@@ -276,15 +248,15 @@ jobs:
       matrix:
         config:
         - {
-            name: "Windows Latest MSVC", artifact: "Windows-MSVC",
+            name: "Windows Latest MSVC", artifact: "Windows-MSVC.7z",
             os: ubuntu-latest
           }
         - {
-            name: "Ubuntu Latest GCC", artifact: "Linux",
+            name: "Ubuntu Latest GCC", artifact: "Linux.7z",
             os: ubuntu-latest
           }
         - {
-            name: "macOS Latest Clang", artifact: "macOS",
+            name: "macOS Latest Clang", artifact: "macOS.7z",
             os: ubuntu-latest
           }
     needs: release
