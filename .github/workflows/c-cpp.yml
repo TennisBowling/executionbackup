@@ -201,23 +201,13 @@ jobs:
           message("::error::${test_results}")
           message(FATAL_ERROR "Running tests failed!")
         endif()
-    #- name: Install Strip
-    #  shell: bash
-    #  run: |
-    #    if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-    #      sudo cmake --install build --prefix instdir --strip
-    #    elif [ "$RUNNER_OS" == "Windows" ]; then
-    #      cmake --install build --prefix instdir --strip
-    #    fi
-
-    - name: move into instdir
+    - name: Install Strip
       shell: bash
       run: |
-        mkdir instdir
         if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-          mv build/executionbackup instdir/
+          sudo cmake --install build --prefix instdir --strip
         elif [ "$RUNNER_OS" == "Windows" ]; then
-          mv build/executionbackup.exe instdir/
+          cmake --install build --prefix instdir --strip
         fi
 
     - name: Pack
