@@ -23,7 +23,7 @@ jobs:
       matrix:
         config:
         - {
-            name: "Windows Latest MSVC", artifact: "Windows-MSVC.zip",
+            name: "Windows Latest MSVC", artifact: "Windows-MSVC",
             os: windows-latest,
             cc: "cl", cxx: "cl",
             environment_script: "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat"
@@ -34,12 +34,12 @@ jobs:
         #    cc: "gcc", cxx: "g++"
         #  }
         - {
-            name: "Ubuntu Latest GCC", artifact: "Linux.zip",
+            name: "Ubuntu Latest GCC", artifact: "Linux",
             os: ubuntu-latest,
             cc: "gcc", cxx: "g++"
           }
         - {
-            name: "macOS Latest Clang", artifact: "macOS.zip",
+            name: "macOS Latest Clang", artifact: "macOS",
             os: macos-latest,
             cc: "clang", cxx: "clang++"
           }
@@ -216,6 +216,15 @@ jobs:
     #      cmake --install build --prefix instdir --strip
     #    fi
     #    ls instdir && echo "\n" && ls build
+  
+    - name: Version
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
+          ./build/bin/executionbackup --version
+        elif [ "$RUNNER_OS" == "Windows" ]; then
+          build/bin/executionbackup.exe --version
+        fi
 
     - name: Move to artifacts
       shell: bash
@@ -267,15 +276,15 @@ jobs:
       matrix:
         config:
         - {
-            name: "Windows Latest MSVC", artifact: "Windows-MSVC.zip",
+            name: "Windows Latest MSVC", artifact: "Windows-MSVC",
             os: ubuntu-latest
           }
         - {
-            name: "Ubuntu Latest GCC", artifact: "Linux.zip",
+            name: "Ubuntu Latest GCC", artifact: "Linux",
             os: ubuntu-latest
           }
         - {
-            name: "macOS Latest Clang", artifact: "macOS.zip",
+            name: "macOS Latest Clang", artifact: "macOS",
             os: ubuntu-latest
           }
     needs: release
