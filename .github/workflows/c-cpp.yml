@@ -23,20 +23,20 @@ jobs:
       matrix:
         config:
         - {
-            name: "Windows Latest MSVC", artifact: "Windows-MSVC.7z",
+            name: "Windows Latest MSVC", artifact: "Windows.exe",
             os: windows-latest,
             cc: "cl", cxx: "cl",
             environment_script: "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat",
             cpack_flags: "-G NSIS"
           }
         - {
-            name: "Ubuntu Latest GCC", artifact: "Linux.7z",
+            name: "Ubuntu Latest GCC", artifact: "Linux.tar.gz",
             os: ubuntu-latest,
             cc: "gcc", cxx: "g++",
             cpack: "",
           }
         - {
-            name: "macOS Latest Clang", artifact: "macOS.7z",
+            name: "macOS Latest Clang", artifact: "macOS.dmg",
             os: macos-latest,
             cc: "clang", cxx: "clang++",
             cpack_flags: "-G DragNDrop",
@@ -216,6 +216,7 @@ jobs:
     - name: Pack
       working-directory: build
       if: matrix.config.artifact != 0
+      shell: bash
       run: |
           if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
             sudo cpack ${{ matrix.config.cpack_flags }}
@@ -227,7 +228,7 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v2
       with:
-        path: ./${{ matrix.config.artifact }}
+        path: ./build/executionbackup*.*
         name: ${{ matrix.config.artifact }}
 
   release:
@@ -264,15 +265,15 @@ jobs:
       matrix:
         config:
         - {
-            name: "Windows Latest MSVC", artifact: "Windows-MSVC.7z",
+            name: "Windows Latest MSVC", artifact: "Windows.zip",
             os: ubuntu-latest
           }
         - {
-            name: "Ubuntu Latest GCC", artifact: "Linux.7z",
+            name: "Ubuntu Latest GCC", artifact: "Linux.tar.gz",
             os: ubuntu-latest
           }
         - {
-            name: "macOS Latest Clang", artifact: "macOS.7z",
+            name: "macOS Latest Clang", artifact: "macOS.dmg",
             os: ubuntu-latest
           }
     needs: release
