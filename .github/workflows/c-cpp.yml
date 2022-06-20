@@ -216,7 +216,12 @@ jobs:
     - name: Pack
       working-directory: build
       if: matrix.config.artifact != 0
-      run: cpack ${{ matrix.config.cpack_flags }}
+      run: |
+          if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
+            sudo cpack ${{ matrix.config.cpack_flags }}
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            cpack ${{ matrix.config.cpack_flags }}
+          fi
 
 
     - name: Upload
