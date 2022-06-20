@@ -213,6 +213,7 @@ jobs:
     - name: move into instdir
       shell: bash
       run: |
+        mkdir instdir
         if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
           mv build/executionbackup instdir/
         elif [ "$RUNNER_OS" == "Windows" ]; then
