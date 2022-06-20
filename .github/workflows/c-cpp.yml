@@ -212,7 +212,12 @@ jobs:
 
     - name: move into instdir
       shell: bash
-      run: mv build/bin/* instdir/
+      run: |
+        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
+          mv build/executionbackup instdir/
+        elif [ "$RUNNER_OS" == "Windows" ]; then
+          mv build/executionbackup.exe instdir/
+        fi
 
     - name: Pack
       working-directory: instdir
