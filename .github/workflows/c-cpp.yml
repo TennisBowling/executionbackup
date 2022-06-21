@@ -13,6 +13,7 @@ env:
   NINJA_VERSION: 1.10.2
   BUILD_TYPE: Release
   CCACHE_VERSION: 4.6
+  CURL_ZLIB: OFF
 
 jobs:
   build:
