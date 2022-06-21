@@ -295,6 +295,7 @@ jobs:
       run: |
         upload_url=`cat ./upload_url`
         echo ::set-output name=upload_url::$upload_url
+        ls
     - name: Upload to Release
       id: upload_to_release
       uses: actions/upload-release-asset@v1
