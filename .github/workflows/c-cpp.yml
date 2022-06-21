@@ -3,7 +3,9 @@ name: CMake Build Matrix
 on: 
   push:
     tags:
-    - "v*"
+    - "*"
+    branches:
+     - "*"
   pull_request:
 
 env:
@@ -21,25 +23,23 @@ jobs:
       matrix:
         config:
         - {
-            name: "Windows Latest MSVC", artifact: "Windows-MSVC.zip",
+            name: "Windows Latest MSVC", artifact: "Windows.exe",
             os: windows-latest,
             cc: "cl", cxx: "cl",
-            environment_script: "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat"
+            environment_script: "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat",
+            cpack_flags: "-G NSIS"
           }
-        #- {
-        #    name: "Ubuntu Latest GCC for ARM", artifact: "Linux-Arm.zip",
-        #    os: ubuntu-latest,
-        #    cc: "gcc", cxx: "g++"
-        #  }
         - {
-            name: "Ubuntu Latest GCC", artifact: "Linux.zip",
+            name: "Ubuntu Latest GCC", artifact: "Linux.tar.gz",
             os: ubuntu-latest,
-            cc: "gcc", cxx: "g++"
+            cc: "gcc", cxx: "g++",
+            cpack: "",
           }
         - {
-            name: "macOS Latest Clang", artifact: "macOS.zip",
+            name: "macOS Latest Clang", artifact: "macOS.dmg",
             os: macos-latest,
-            cc: "clang", cxx: "clang++"
+            cc: "clang", cxx: "clang++",
+            cpack_flags: "-G DragNDrop",
           }
 
     steps:
@@ -136,6 +136,7 @@ jobs:
             -D CMAKE_MAKE_PROGRAM=ninja
             -D CMAKE_C_COMPILER_LAUNCHER=ccache
             -D CMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -D CURL_ZLIB=OFF
           RESULT_VARIABLE result
         )
         if (NOT result EQUAL 0)
@@ -204,26 +205,31 @@ jobs:
           message("::error::${test_results}")
           message(FATAL_ERROR "Running tests failed!")
         endif()
-    
-    - name: Install Strip
-      shell: bash
-      run: |
-        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-          sudo cmake --install build --prefix instdir --strip
-        elif [ "$RUNNER_OS" == "Windows" ]; then
-          cmake --install build --prefix instdir --strip
-        fi
-
+    #- name: Install Strip
+    #  shell: bash
+    #  run: |
+    #    if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
+    #      sudo cmake --install build --prefix instdir --strip
+    #    elif [ "$RUNNER_OS" == "Windows" ]; then
+    #      cmake --install build --prefix instdir --strip
+    #    fi
 
     - name: Pack
-      working-directory: instdir
-      run: cmake -E tar cfv ../${{ matrix.config.artifact }} --format=zip .
+      working-directory: build
+      if: matrix.config.artifact != 0
+      shell: bash
+      run: |
+          if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
+            sudo cpack ${{ matrix.config.cpack_flags }}
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            cpack ${{ matrix.config.cpack_flags }}
+          fi
 
 
     - name: Upload
       uses: actions/upload-artifact@v2
       with:
-        path: ./${{ matrix.config.artifact }}
+        path: ./build/executionbackup*.*
         name: ${{ matrix.config.artifact }}
 
   release:
@@ -260,15 +266,15 @@ jobs:
       matrix:
         config:
         - {
-            name: "Windows Latest MSVC", artifact: "Windows-MSVC.zip",
+            name: "Windows Latest MSVC", artifact: "Windows.zip",
             os: ubuntu-latest
           }
         - {
-            name: "Ubuntu Latest GCC", artifact: "Linux.zip",
+            name: "Ubuntu Latest GCC", artifact: "Linux.tar.gz",
             os: ubuntu-latest
           }
         - {
-            name: "macOS Latest Clang", artifact: "macOS.zip",
+            name: "macOS Latest Clang", artifact: "macOS.dmg",
             os: ubuntu-latest
           }
     needs: release
