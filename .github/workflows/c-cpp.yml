@@ -296,6 +296,17 @@ jobs:
         upload_url=`cat ./upload_url`
         echo ::set-output name=upload_url::$upload_url
         ls
+    
+    - name: Make folder for upload
+      shell: bash
+      run: |
+        mkdir ${{ matrix.config.artifact }}
+    
+    - name: Move artifact to folder
+      shell: bash
+      run: |
+        mv executionbackup*.* ${{ matrix.config.artifact }}/
+
     - name: Upload to Release
       id: upload_to_release
       uses: actions/upload-release-asset@v1
