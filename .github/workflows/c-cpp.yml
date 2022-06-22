@@ -266,15 +266,15 @@ jobs:
       matrix:
         config:
         - {
-            name: "Windows Latest MSVC", artifact: "Windows.exe",
+            name: "Windows Latest MSVC", artifact: "Windows.zip",
             os: ubuntu-latest
           }
         - {
-            name: "Ubuntu Latest GCC", artifact: "Linux.tar.gz",
+            name: "Ubuntu Latest GCC", artifact: "Linux.zip",
             os: ubuntu-latest
           }
         - {
-            name: "macOS Latest Clang", artifact: "macOS.dmg",
+            name: "macOS Latest Clang", artifact: "macOS.zip",
             os: ubuntu-latest
           }
     needs: release
@@ -297,15 +297,10 @@ jobs:
         echo ::set-output name=upload_url::$upload_url
         ls
     
-    - name: Make folder for upload
+    - name: Zip items
       shell: bash
       run: |
-        mkdir ${{ matrix.config.artifact }}
-    
-    - name: Move artifact to folder
-      shell: bash
-      run: |
-        mv executionbackup*.* ${{ matrix.config.artifact }}/
+        zip -r ${{ matrix.config.artifact }} executionbackup*.*
 
     - name: Upload to Release
       id: upload_to_release
