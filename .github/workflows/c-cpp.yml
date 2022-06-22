@@ -234,8 +234,8 @@ jobs:
     - name: Upload Changelog
       uses: actions/upload-artifact@v2
       with:
-        path: ./changelog.md
-        name: changelog.md
+        path: ./changelog.txt
+        name: changelog.txt
 
   release:
     if: contains(github.ref, 'tags/v')
@@ -247,13 +247,13 @@ jobs:
     - name: Download Changelog Artifact
       uses: actions/download-artifact@v2
       with:
-        name: changelog.md
+        name: changelog.txt
         path: ./
 
     - name: Read Changelog and Assign to Variable
       id: read_changelog
       run: |
-        input_file="changelog.md"
+        input_file="changelog.txt"
         while read line
         do
           file_text=$line
