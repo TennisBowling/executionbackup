@@ -225,12 +225,17 @@ jobs:
             cpack ${{ matrix.config.cpack_flags }}
           fi
 
-
     - name: Upload
       uses: actions/upload-artifact@v2
       with:
         path: ./build/executionbackup*.*
         name: ${{ matrix.config.artifact }}
+    
+    - name: Upload Changelog
+      uses: actions/upload-artifact@v2
+      with:
+        path: ./changelog.md
+        name: changelog.md
 
   release:
     if: contains(github.ref, 'tags/v')
@@ -238,6 +243,23 @@ jobs:
     needs: build
 
     steps:
+
+    - name: Download Changelog Artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: changelog.md
+        path: ./
+
+    - name: Read Changelog and Assign to Variable
+      id: read_changelog
+      run: |
+        input_file="changelog.md"
+        while read line
+        do
+          file_text=$line
+        done < "$input_file"
+        echo ::set-output name=changelog::$file_text
+
     - name: Create Release
       id: create_release
       uses: actions/create-release@v1
@@ -246,6 +268,7 @@ jobs:
       with:
         tag_name: ${{ github.ref }}
         release_name: Release ${{ github.ref }}
+        body: ${{ steps.read_changelog.outputs.changelog }}
         draft: false
         prerelease: false
 
