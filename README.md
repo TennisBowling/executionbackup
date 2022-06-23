@@ -23,7 +23,7 @@ Then clone the repo and build:
 
 ```bash
 git clone --recursive https://github.com/tennisbowling/executionbackup.git
-cd executionbackup/executionbackup-cpp
+cd executionbackup
 make
 ```
 
