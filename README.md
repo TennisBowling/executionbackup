@@ -16,7 +16,7 @@ Pre-Built Binaries are provided under the github realease.
 First, install the requirements:
 
 ```bash
-sudo apt install -y build-essential cmake libboost-dev libboost-program-options-dev
+sudo apt install -y build-essential cmake
 ```
 
 Then clone the repo and build:
