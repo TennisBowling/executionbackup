@@ -64,6 +64,16 @@ public:
         spdlog::info("Node {} is offline", this->url_string);
     }
 
+    void set_alive_but_syncing()
+    {
+        if (this->status == 2)
+        {
+            return;
+        }
+        this->status = 2;
+        spdlog::info("Node {} is alive but currently syncing", this->url_string);
+    }
+
     check_alive_result check_alive()
     {
         auto start = std::chrono::high_resolution_clock::now();
@@ -79,7 +89,7 @@ public:
         }
         else
         {
-            this->set_offline();
+            this->set_alive_but_syncing();
             return check_alive_result{this, 2, elapsed};
         }
     }
@@ -149,7 +159,7 @@ public:
         for (auto &fut : results)
         {
             auto result = fut.get();
-            spdlog::info("node {} with response time {}", result.node->url_string, result.resp_time);
+
 
             if (result.status == 1)
             {
@@ -227,45 +237,27 @@ public:
         }
     }
 
-    // find what the response has is the most common
-    // majority must be at least fcU_invalid_threshold
-    // if not, return empty string
-    std::string fcU_majority(std::vector<request_result> &results)
-    {
-        std::map<std::string, int> counts;
-        for (auto &resp : results)
-        {
-            // check if the response is already in the map
-            if (counts.find(resp.body) == counts.end())
-            {
-                counts[resp.body] = 1;
-            }
-            else
-            {
-                counts[resp.body]++;
-            }
-        }
-
-        // find the most common response and check if it is at least fcU_invalid_threshold
-        int max_count = 0;
-        std::string max_resp;
-        for (auto &resp : counts)
-        {
-            if (resp.second > max_count)
-            {
-                max_count = resp.second;
-                max_resp = resp.first;
-            }
-        }
-        if (max_count / results.size() >= this->fcU_invalid_threshold)
-        {
-            return max_resp;
-        }
-        else
-        {
-            return "";
-        }
-    }
+    // a function that gets the majority response from a vector of request_results
+    // then checks if it is at least this->fcU_invalid_threshold (which is a decimal representation of a percentage)
+	// if not, return empty string
+	std::string fcU_majority(std::vector<request_result> &results)
+	{
+		std::map<std::string, int> responses;
+		for (auto &result : results)
+		{
+			responses[result.body]++;
+		}
+		auto max_response = std::max_element(responses.begin(), responses.end(), [](const std::pair<std::string, int> &a, const std::pair<std::string, int> &b)
+											 { return a.second < b.second; });
+		if (max_response->second > results.size() * this->fcU_invalid_threshold)
+			{
+			return max_response->first;
+			}
+		else
+			{
+			return "";
+			}
+	}
 
     /*
     logic for forkchoiceUpdated
@@ -282,6 +274,12 @@ public:
     request_result fcU_logic(std::vector<request_result> &resps)
     {
         auto maj = this->fcU_majority(resps);
+
+        if (maj.empty()) // if there is no majority, return SYNCING
+        {
+            return request_result{200, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}", cpr::Header{{"Content-Type", "application/json"}, {"Content-Length", "135"}, {"Content-Type", "application/json"}}};
+        }
+
         if (json::parse(maj)["result"]["payloadStatus"]["status"] == "INVALID") // here we see if most responses are INVALID, if so, return INVALID
         {
             return request_result{200, maj, cpr::Header{{"Content-Type", "application/json"}, {"Content-Length", std::to_string(maj.size())}, {"Content-Type", "application/json"}}};
@@ -292,11 +290,11 @@ public:
             json j = json::parse(resp.body);
             if (j["result"]["payloadStatus"]["status"] == "INVALID" || j["result"]["payloadStatus"]["status"] == "SYNCING")
             {
-                return request_result{resp.status, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}", resp.headers};
+                return request_result{200, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}", cpr::Header{{"Content-Type", "application/json"}, {"Content-Length", "135"}, {"Content-Type", "application/json"}} }; // we cannot use the response's headers since we are replacing the body with our own (invalidating the content type)
             }
         }
 
-        // if we get here, all responses are VALID
+        // if we get here, all responses are VALID or SYNCING
         // send to syncing nodes using the first response
         auto _ = std::async(std::launch::async, &NodeRouter::send_to_alive_but_syncing, this, resps[0].body, resps[0].headers);
         return resps[0];
@@ -374,6 +372,7 @@ int main(int argc, char *argv[])
     // create a node router
     NodeRouter router(urls, fcuinvalidthreshold);
 
+    router.recheck();
     // call recheck every 30s
     auto _ = std::async(std::launch::async, [&router]()
                         {
@@ -395,7 +394,8 @@ int main(int argc, char *argv[])
             auto _ = std::async(std::launch::async, [&router, &body, &headers, &j, &response, &request]()
                                 {
                                     auto resp = router.do_engine_route(body, j, headers);
-                                    response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
+                                    response->write(resp.body, cpr_header_to_multimap(resp.headers));
+                });
         }
         else
         {
