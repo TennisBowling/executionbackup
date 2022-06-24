@@ -113,7 +113,7 @@ async def main():
     
     # start the EB binary
     # we need to fork off the binary and run it
-    subprocess.Popen(['./executionbackup', '--nodes', 'http://localhost:8001,http://localhost:8002,http://localhost:8003', '--port', '8545'])
+    subprocess.Popen(['build/executionbackup', '--nodes', 'http://localhost:8001,http://localhost:8002,http://localhost:8003', '--port', '8545'])
 
 
     print('starting tests')
