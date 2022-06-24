@@ -110,12 +110,13 @@ async def main():
     subprocess.Popen(['python', 'tests/mockee.py', '--port', '8001', '--name', 'mockEE1'])
     subprocess.Popen(['python', 'tests/mockee.py', '--port', '8002', '--name', 'mockEE2'])
     subprocess.Popen(['python', 'tests/mockee.py', '--port', '8003', '--name', 'mockEE3'])
+    time.sleep(5)
     
     # start the EB binary
     # we need to fork off the binary and run it
     subprocess.Popen(['build/executionbackup', '--nodes', 'http://localhost:8001,http://localhost:8002,http://localhost:8003', '--port', '8545'])
 
-    time.sleep(5)
+    time.sleep(2)
     print('starting tests')
     # call the check functions
     try:
