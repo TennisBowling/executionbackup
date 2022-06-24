@@ -115,7 +115,7 @@ async def main():
     # we need to fork off the binary and run it
     subprocess.Popen(['build/executionbackup', '--nodes', 'http://localhost:8001,http://localhost:8002,http://localhost:8003', '--port', '8545'])
 
-
+    time.sleep(5)
     print('starting tests')
     # call the check functions
     try:
