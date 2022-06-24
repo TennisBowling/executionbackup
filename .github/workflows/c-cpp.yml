@@ -188,12 +188,14 @@ jobs:
     
     - name: Run tests   # only run tests on linux since windows and mac have weird problems with python and dont run eb/other problems.
       shell: bash
-      if: matrix.os == "Linux"
       run: |
-        python3 -m pip install sanic ujson requests
-        ls
-        python3 tests/test.py
-        
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            python3 -m pip install sanic ujson requests
+            python3 tests/test.py
+          elif [ "$RUNNER_OS" == "Windows" ] || [ "$RUNNER_OS" == "macOS" ]; then
+            echo "Tests are skipped on Windows and macOS because of problems with running the test.py script. Please check the Linux build for tests."
+          fi
+      
 
     - name: Pack
       working-directory: build
