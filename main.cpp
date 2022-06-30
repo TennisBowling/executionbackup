@@ -3,11 +3,14 @@
 #include <nlohmann/json.hpp>
 #include "util.hpp"
 #include "Simple-Web-Server/server_http.hpp"
+#include <boost/asio/thread_pool.hpp>
+#include <boost/asio/post.hpp>
 #include <iostream>
 #include <string>
 #include <chrono>
 #include <vector>
 #include <future>
+#include <thread>
 using json = nlohmann::json;
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
@@ -102,6 +105,7 @@ public:
         // replace whatever content encoding accept there is with identity
         headers.erase("Accept-Encoding");
         headers.emplace("Accept-Encoding", "identity");
+        headers.emplace("Content-Type", "application/json");
         try
         {
             auto r = cpr::Post(
@@ -159,7 +163,6 @@ public:
         for (auto &fut : results)
         {
             auto result = fut.get();
-
 
             if (result.status == 1)
             {
@@ -239,25 +242,25 @@ public:
 
     // a function that gets the majority response from a vector of request_results
     // then checks if it is at least this->fcU_invalid_threshold (which is a decimal representation of a percentage)
-	// if not, return empty string
-	std::string fcU_majority(std::vector<request_result> &results)
-	{
-		std::map<std::string, int> responses;
-		for (auto &result : results)
-		{
-			responses[result.body]++;
-		}
-		auto max_response = std::max_element(responses.begin(), responses.end(), [](const std::pair<std::string, int> &a, const std::pair<std::string, int> &b)
-											 { return a.second < b.second; });
-		if (max_response->second > results.size() * this->fcU_invalid_threshold)
-			{
-			return max_response->first;
-			}
-		else
-			{
-			return "";
-			}
-	}
+    // if not, return empty string
+    std::string fcU_majority(std::vector<request_result> &results)
+    {
+        std::map<std::string, int> responses;
+        for (auto &result : results)
+        {
+            responses[result.body]++;
+        }
+        auto max_response = std::max_element(responses.begin(), responses.end(), [](const std::pair<std::string, int> &a, const std::pair<std::string, int> &b)
+                                             { return a.second < b.second; });
+        if (max_response->second > results.size() * this->fcU_invalid_threshold)
+        {
+            return max_response->first;
+        }
+        else
+        {
+            return "";
+        }
+    }
 
     /*
     logic for forkchoiceUpdated
@@ -290,7 +293,7 @@ public:
             json j = json::parse(resp.body);
             if (j["result"]["payloadStatus"]["status"] == "INVALID" || j["result"]["payloadStatus"]["status"] == "SYNCING")
             {
-                return request_result{200, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}", cpr::Header{{"Content-Type", "application/json"}, {"Content-Length", "135"}, {"Content-Type", "application/json"}} }; // we cannot use the response's headers since we are replacing the body with our own (invalidating the content type)
+                return request_result{200, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}", cpr::Header{{"Content-Type", "application/json"}, {"Content-Length", "135"}, {"Content-Type", "application/json"}}}; // we cannot use the response's headers since we are replacing the body with our own (invalidating the content type)
             }
         }
 
@@ -366,6 +369,8 @@ int main(int argc, char *argv[])
         fcuinvalidthreshold = vm["fcu-invalid-threshold"].as<double>();
     }
 
+    // create threadpool with the amount of threads available
+
     HttpServer server;
     server.config.port = port;
 
@@ -376,11 +381,11 @@ int main(int argc, char *argv[])
     // call recheck every 30s
     auto _ = std::async(std::launch::async, [&router]()
                         {
-                            while (true)
-                            {
-                                std::this_thread::sleep_for(std::chrono::seconds(30));
-                                router.recheck();
-                            } });
+            while (true)
+            {
+                std::this_thread::sleep_for(std::chrono::seconds(30));
+                router.recheck();
+            } });
 
     server.resource["/route"]["POST"] = [&router](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request)
     {
@@ -393,17 +398,16 @@ int main(int argc, char *argv[])
             // call the router's engine route function and send the response back asynchronously
             auto _ = std::async(std::launch::async, [&router, &body, &headers, &j, &response, &request]()
                                 {
-                                    auto resp = router.do_engine_route(body, j, headers);
-                                    response->write(resp.body, cpr_header_to_multimap(resp.headers));
-                });
+                    auto resp = router.do_engine_route(body, j, headers);
+                    response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
         }
         else
         {
             // call the router's route function and send the response back asynchronously
             auto _ = std::async(std::launch::async, [&router, &body, &headers, &response, &request]()
                                 {
-                                    auto resp = router.route(body, headers);
-                                    response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
+                    auto resp = router.route(body, headers);
+                    response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
         }
     };
 
