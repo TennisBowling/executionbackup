@@ -4,3 +4,6 @@
 [submodule "boost-cmake"]
 	path = boost-cmake
 	url = https://github.com/ClausKlein/boost-cmake.git
+[submodule "jwt-cpp"]
+	path = jwt-cpp
+	url = https://github.com/Thalhammer/jwt-cpp.git
