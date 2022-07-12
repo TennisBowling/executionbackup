@@ -30,11 +30,12 @@ async def get_response(request):
     #    return response.json({"status": "error", "error": "Content-Type must be application/json"})
 
     if request.json['method'] == 'eth_syncing':
-        # we only check jwt here since otherwise we assume the CL will just pass the jwt
-        # strip bearer
-        token = request.headers.get('Authorization').split(' ')[1]
-        claims = jwt.decode(token, jwt_secret, algorithms='HS256', options={'require': ['iat']})
-        print(f'claims: {claims}')
+        if not request.headers.get('tester') == '1':
+            # we only check jwt here since otherwise we assume the CL will just pass the jwt
+            # strip bearer
+            token = request.headers.get('Authorization').split(' ')[1]
+            claims = jwt.decode(token, jwt_secret, algorithms='HS256', options={'require': ['iat']})
+            print(f'claims: {claims}')
         return response.json({"jsonrpc": "2.0", "id": 1, "result": False})
 
     resp = await request.respond()

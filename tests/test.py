@@ -51,7 +51,7 @@ def check_syncing():
     # no need to send expected response since mock ee are never syncing
 
     # send a request to EB and check if we get the expected response
-    response = requests.post('http://localhost:8545/', data='{"id":1,"jsonrpc":"2.0","method":"eth_syncing","params":null}', headers={'Content-Type': 'application/json'})
+    response = requests.post('http://localhost:8545/', data='{"id":1,"jsonrpc":"2.0","method":"eth_syncing","params":null}', headers={'Content-Type': 'application/json', 'tester': '1'})
     assert response.json() == {"jsonrpc": "2.0", "id": 1, "result": False}, 'Expected response did not match actual response for eth_syncing'
 
 def check_fcu_valid():
@@ -64,7 +64,7 @@ def check_fcu_valid():
     }
     send_to_EEs(ujson.dumps(expected))
 
-    response = requests.post('http://localhost:8545/', data=ujson.dumps({'method': 'engine_forkchoiceUpdatedV1'}), headers={'Content-Type': 'application/json'})
+    response = requests.post('http://localhost:8545/', data=ujson.dumps({'method': 'engine_forkchoiceUpdatedV1'}), headers={'Content-Type': 'application/json', 'tester': '1'})
     
     print(f'Expected response: {expected}, got {response.json()}')
     
@@ -80,7 +80,7 @@ def check_fcu_invalid():
     }
     send_to_EEs(ujson.dumps(expected))
 
-    response = requests.post('http://localhost:8545/', data=ujson.dumps({'method': 'engine_forkchoiceUpdatedV1'}), headers={'Content-Type': 'application/json'})
+    response = requests.post('http://localhost:8545/', data=ujson.dumps({'method': 'engine_forkchoiceUpdatedV1'}), headers={'Content-Type': 'application/json', 'tester': '1'})
     
     print(f'Expected response: {expected}, got {response.json()}')
 
@@ -95,7 +95,7 @@ def check_fcu_syncing():
     requests.post('http://localhost:8002/mock/set_response', data=ujson.dumps({'result': {'payloadStatus': {'status': 'VALID'}}}))
     requests.post('http://localhost:8003/mock/set_response', data=ujson.dumps({'result': {'payloadStatus': {'status': 'INVALID'}}}))
 
-    response = requests.post('http://localhost:8545/', data=ujson.dumps({'method': 'engine_forkchoiceUpdatedV1'}), headers={'Content-Type': 'application/json'})
+    response = requests.post('http://localhost:8545/', data=ujson.dumps({'method': 'engine_forkchoiceUpdatedV1'}), headers={'Content-Type': 'application/json', 'tester': '1'})
 
     expected = {'result': {'payloadStatus': {'status': 'SYNCING'}}}
 
