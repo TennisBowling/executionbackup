@@ -28,13 +28,13 @@ async def get_response(request):
     """Get the response for the mock EE."""
     #if request.headers.get('Content-Type') != 'application/json':
     #    return response.json({"status": "error", "error": "Content-Type must be application/json"})
-    
-    # strip bearer
-    token = request.headers.get('Authorization').split(' ')[1]
-    claims = jwt.decode(token, jwt_secret, algorithms='HS256', options={'require': ['iat']})
-    print(f'claims: {claims}')
 
     if request.json['method'] == 'eth_syncing':
+        # we only check jwt here since otherwise we assume the CL will just pass the jwt
+        # strip bearer
+        token = request.headers.get('Authorization').split(' ')[1]
+        claims = jwt.decode(token, jwt_secret, algorithms='HS256', options={'require': ['iat']})
+        print(f'claims: {claims}')
         return response.json({"jsonrpc": "2.0", "id": 1, "result": False})
 
     resp = await request.respond()
