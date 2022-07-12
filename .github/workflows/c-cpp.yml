@@ -52,10 +52,8 @@ jobs:
       run: |
         if [ "$RUNNER_OS" == "Linux" ]; then
             sudo apt-get install -y openssl libssl-dev
-        fi
         elif [ "$RUNNER_OS" == "macOS" ]; then
             brew install openssl
-        fi
         elif [ "$RUNNER_OS" == "Windows" ]; then
             choco install -y openssl
         fi
