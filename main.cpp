@@ -5,7 +5,6 @@
 #include "Simple-Web-Server/server_http.hpp"
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/post.hpp>
-#include <boost/variant.hpp>
 #undef min
 #undef max
 #include <jwt-cpp/jwt.h>
@@ -20,10 +19,9 @@
 using json = nlohmann::json;
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
-cpr::Header APPLICATIONJSON = { {"Content-Type", "application/json"} };
+cpr::Header APPLICATIONJSON = {{"Content-Type", "application/json"}};
 std::string SYNCING_JSON = "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_syncing\",\"params\":[]}";
-jwt::claim SYNCING_JSON_CLAIM{ SYNCING_JSON };
-
+jwt::claim SYNCING_JSON_CLAIM{SYNCING_JSON};
 
 struct request_result
 {
@@ -89,18 +87,17 @@ public:
 
     check_alive_result check_alive()
     {
-        
+
         // we need to use jwt here since we're directly talking to the auth port
 
         // create jwt object
         auto time = jwt::date::clock::now();
         auto token = jwt::create()
-            .set_type("JWT")
-            .set_issued_at(time)
-            .set_payload_claim("object", SYNCING_JSON_CLAIM)
-            .sign(jwt::algorithm::hs256{this->jwt});
-		
-		
+                         .set_type("JWT")
+                         .set_issued_at(time)
+                         //.set_payload_claim("object", SYNCING_JSON_CLAIM)
+                         .sign(jwt::algorithm::hs256{this->jwt});
+
         auto start = std::chrono::high_resolution_clock::now();
         auto response = this->do_request_jwt(SYNCING_JSON, APPLICATIONJSON, token);
         auto end = std::chrono::high_resolution_clock::now();
@@ -145,36 +142,35 @@ public:
         }
         return request_result{status, response, response_headers};
     }
-	
-	// function for with jwt (requests created from recheck call this)
-	request_result do_request_jwt(std::string data, cpr::Header headers, std::string token)
-	{
-		std::string response;
-		cpr::Header response_headers;
-		int status;
-		// replace whatever content encoding accept there is with identity
-		headers.erase("Accept-Encoding");
-		headers.emplace("Accept-Encoding", "identity");
 
-		try
-		{
-			auto r = cpr::Post(
-				this->url,
-				cpr::Body{data},
-				headers,
-				cpr::Bearer{token});
-			response = r.text;
-			status = r.status_code;
-			response_headers = r.header;
-		}
-		catch (const cpr::Error &e)
-		{
-			this->set_offline();
-			std::cerr << "Error: " << e.message << std::endl;
-		}
-		return request_result{status, response, response_headers};
-	}
-	
+    // function for with jwt (requests created from recheck call this)
+    request_result do_request_jwt(std::string data, cpr::Header headers, std::string token)
+    {
+        std::string response;
+        cpr::Header response_headers;
+        int status;
+        // replace whatever content encoding accept there is with identity
+        headers.erase("Accept-Encoding");
+        headers.emplace("Accept-Encoding", "identity");
+
+        try
+        {
+            auto r = cpr::Post(
+                this->url,
+                cpr::Body{data},
+                headers,
+                cpr::Bearer{token});
+            response = r.text;
+            status = r.status_code;
+            response_headers = r.header;
+        }
+        catch (const cpr::Error &e)
+        {
+            this->set_offline();
+            std::cerr << "Error: " << e.message << std::endl;
+        }
+        return request_result{status, response, response_headers};
+    }
 };
 
 class NodeRouter
@@ -397,12 +393,12 @@ int main(int argc, char *argv[])
     auto vm = parse_args(argc, argv);
     // get vm["nodes"] into a vector of strings
     std::vector<std::string> urls;
-    urls.push_back("http://192.168.86.109:8551");
-    //csv_to_vec(vm["nodes"].as<std::string>(), urls);
+    // urls.push_back("http://192.168.86.109:8545"); // my personal geth node
+    csv_to_vec(vm["nodes"].as<std::string>(), urls);
 
-    //auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
-    auto jwt = read_jwt("C:\\Users\\FASTS\\OneDrive\\Documents\\github\\executionbackup\\jwt.txt");
-	
+    auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
+    // auto jwt = read_jwt("C:\\Users\\FASTS\\OneDrive\\Documents\\github\\executionbackup\\jwt.txt");
+
     int port;
 
     if (vm.count("port") == 0)

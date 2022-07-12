@@ -107,17 +107,17 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         exit(0);
     }
 
-    //if (vm.count("nodes") == 0)
-    //{
-    //    spdlog::critical("no nodes specified, exiting");
-    //    exit(1);
-    //}
+    if (vm.count("nodes") == 0)
+    {
+        spdlog::critical("no nodes specified, exiting");
+        exit(1);
+    }
 	
-	/*if (vm.count("jwt-secret") == 0)
+	if (vm.count("jwt-secret") == 0)
 	{
 		spdlog::critical("no jwt secret specified, exiting");
 		exit(1);
-  	}*/
+  	}
 
     if (vm.count("port") == 0)
     {
