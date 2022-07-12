@@ -54,6 +54,7 @@ jobs:
             sudo apt-get install -y openssl libssl-dev
         elif [ "$RUNNER_OS" == "macOS" ]; then
             brew install openssl
+            brew link --force openssl
         elif [ "$RUNNER_OS" == "Windows" ]; then
             choco install -y openssl
         fi
