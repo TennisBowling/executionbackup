@@ -200,7 +200,7 @@ jobs:
       shell: bash
       run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
-            python3 -m pip install sanic ujson requests
+            python3 -m pip install sanic ujson requests pyjwt
             python3 tests/test.py
           elif [ "$RUNNER_OS" == "Windows" ] || [ "$RUNNER_OS" == "macOS" ]; then
             echo "Tests are skipped on Windows and macOS because of problems with running the test.py script. Please check the Linux build for tests."

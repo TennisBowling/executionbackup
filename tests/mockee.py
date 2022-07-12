@@ -1,10 +1,17 @@
 from sanic import Sanic, response
 import argparse
+import jwt
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--port', type=int, required=True)
 parser.add_argument('--name', type=str, required=True)
+parser.add_argument('--jwt_secret', type=str, required=True)
 args = parser.parse_args()
+
+jwt_secret = None
+with open(args.jwt_secret) as f:
+    jwt_secret = f.read()
+
 
 app = Sanic(args.name)
 
@@ -22,6 +29,11 @@ async def get_response(request):
     #if request.headers.get('Content-Type') != 'application/json':
     #    return response.json({"status": "error", "error": "Content-Type must be application/json"})
     
+    # strip bearer
+    token = request.headers.get('Authorization').split(' ')[1]
+    claims = jwt.decode(token, jwt_secret, algorithms='HS256', options={'require': ['iat']})
+    print(f'claims: {claims}')
+
     if request.json['method'] == 'eth_syncing':
         return response.json({"jsonrpc": "2.0", "id": 1, "result": False})
 

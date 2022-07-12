@@ -107,14 +107,14 @@ def check_fcu_syncing():
 async def main():
 
     # start three mock EE's
-    subprocess.Popen(['python', 'tests/mockee.py', '--port', '8001', '--name', 'mockEE1'])
-    subprocess.Popen(['python', 'tests/mockee.py', '--port', '8002', '--name', 'mockEE2'])
-    subprocess.Popen(['python', 'tests/mockee.py', '--port', '8003', '--name', 'mockEE3'])
+    subprocess.Popen(['python', 'tests/mockee.py', '--port', '8001', '--name', 'mockEE1', '--jwt-secret', 'jwt.txt'])
+    subprocess.Popen(['python', 'tests/mockee.py', '--port', '8002', '--name', 'mockEE2', '--jwt-secret', 'jwt.txt'])
+    subprocess.Popen(['python', 'tests/mockee.py', '--port', '8003', '--name', 'mockEE3', '--jwt-secret', 'jwt.txt'])
     time.sleep(5)
     
     # start the EB binary
     # we need to fork off the binary and run it
-    subprocess.Popen(['build/executionbackup', '--nodes', 'http://localhost:8001,http://localhost:8002,http://localhost:8003', '--port', '8545', '--jwt-secret', 'jwt.txt'])
+    subprocess.Popen(['build/executionbackup', '--nodes', 'http://localhost:8001,http://localhost:8002,http://localhost:8003', '--port', '8545', '--jwt_secret', 'jwt.txt'])
 
     time.sleep(2)
     print('starting tests')
