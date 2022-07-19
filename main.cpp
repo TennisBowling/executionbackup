@@ -7,7 +7,7 @@
 #include <boost/asio/post.hpp>
 #undef min
 #undef max
-#include <jwt-cpp/jwt.h>
+#include "rust_jwt.hpp"
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -21,7 +21,6 @@ using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
 cpr::Header APPLICATIONJSON = {{"Content-Type", "application/json"}};
 std::string SYNCING_JSON = "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_syncing\",\"params\":[]}";
-jwt::claim SYNCING_JSON_CLAIM{SYNCING_JSON};
 
 struct request_result
 {
@@ -45,14 +44,14 @@ public:
     cpr::Url url;
     std::string url_string;
     int status; // 0 = offline, 1 = online, 2 = online but not synced
-    std::string jwt;
+    std::string jwt_secret;
 
-    NodeInstance(std::string url, std::string jwt)
+    NodeInstance(std::string url, std::string jwt_secret)
     {
         this->url = cpr::Url{url};
         this->url_string = url;
         this->status = 0;
-        this->jwt = jwt;
+        this->jwt_secret = jwt_secret;
     }
 
     void set_online()
@@ -91,12 +90,9 @@ public:
         // we need to use jwt here since we're directly talking to the auth port
 
         // create jwt object
-        auto time = jwt::date::clock::now();
-        auto token = jwt::create()
-                         .set_type("JWT")
-                         .set_issued_at(time)
-                         //.set_payload_claim("object", SYNCING_JSON_CLAIM)
-                         .sign(jwt::algorithm::hs256{this->jwt});
+        double timestamp = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+        std::string token = make_jwt(this->jwt_secret.data(), timestamp);
 
         auto start = std::chrono::high_resolution_clock::now();
         auto response = this->do_request_jwt(SYNCING_JSON, APPLICATIONJSON, token);
@@ -393,11 +389,11 @@ int main(int argc, char *argv[])
     auto vm = parse_args(argc, argv);
     // get vm["nodes"] into a vector of strings
     std::vector<std::string> urls;
-    // urls.push_back("http://192.168.86.109:8545"); // my personal geth node
-    csv_to_vec(vm["nodes"].as<std::string>(), urls);
+    urls.push_back("http://192.168.86.109:8551"); // my personal geth node
+    // csv_to_vec(vm["nodes"].as<std::string>(), urls);
 
-    auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
-    // auto jwt = read_jwt("C:\\Users\\FASTS\\OneDrive\\Documents\\github\\executionbackup\\jwt.txt");
+    // auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
+    auto jwt = read_jwt("C:\\Users\\FASTS\\OneDrive\\Documents\\github\\executionbackup\\jwt.txt");
 
     int port;
 

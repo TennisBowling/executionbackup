@@ -4,6 +4,7 @@
 #include <future>
 #include <unordered_map>
 #include <fstream>
+#include <sstream>
 #include <cpr/cpr.h>
 #include <boost/program_options.hpp>
 #include <boost/config.hpp>
@@ -52,20 +53,19 @@ void csv_to_vec(std::string csv, std::vector<std::string> &vec)
     }
 }
 
-std::string read_jwt(const std::string& filepath)
+std::string read_jwt(const std::string &filepath)
 {
-    std::ifstream file(filepath);
-	std::string jwt;
-	
-    if (file.is_open())
+    std::ifstream filestream(filepath);
+
+    if (filestream.is_open())
     {
-		file >> jwt;
-		file.close();
+        std::string jwt;
+        filestream >> jwt;
         return jwt;
-	}
-	else
-	{
-		spdlog::error("Unable to open file {} for jwt.", filepath);
+    }
+    else
+    {
+        spdlog::error("Unable to open file {} for jwt.", filepath);
         exit(1);
     }
 }
@@ -87,8 +87,7 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         ("port,p", boost::program_options::value<int>(), "port to listen on")                           // port to listen on
         ("nodes,n", boost::program_options::value<std::string>(), "comma separated list of nodes")      // comma separated list of nodes
         ("fcu-invalid-threshold,fcu", boost::program_options::value<double>(), "fcU invalid threshold") // fcU invalid threshold
-		("jwt-secret,jwt", boost::program_options::value<std::string>(), "The file path for the jwt secret file")
-        ;
+        ("jwt-secret,jwt", boost::program_options::value<std::string>(), "The file path for the jwt secret file");
 
     boost::program_options::variables_map vm;
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
@@ -107,17 +106,18 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         exit(0);
     }
 
+    /*
     if (vm.count("nodes") == 0)
     {
         spdlog::critical("no nodes specified, exiting");
         exit(1);
     }
-	
-	if (vm.count("jwt-secret") == 0)
-	{
-		spdlog::critical("no jwt secret specified, exiting");
-		exit(1);
-  	}
+
+    if (vm.count("jwt-secret") == 0)
+    {
+        spdlog::critical("no jwt secret specified, exiting");
+        exit(1);
+    } */
 
     if (vm.count("port") == 0)
     {
