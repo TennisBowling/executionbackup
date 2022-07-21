@@ -5,9 +5,9 @@
 #include "Simple-Web-Server/server_http.hpp"
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/post.hpp>
+#include "rust_jwt/rust_jwt.hpp"
 #undef min
 #undef max
-#include "rust_jwt.hpp"
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -90,9 +90,9 @@ public:
         // we need to use jwt here since we're directly talking to the auth port
 
         // create jwt object
-        double timestamp = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+        const int64_t timestamp = static_cast<int64_t>(std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
 
-        std::string token = make_jwt(this->jwt_secret.data(), timestamp);
+        std::string token = make_jwt(this->jwt_secret.data(), &timestamp);
 
         auto start = std::chrono::high_resolution_clock::now();
         auto response = this->do_request_jwt(SYNCING_JSON, APPLICATIONJSON, token);
