@@ -40,7 +40,7 @@ option(BUILD_SHARED_LIBS "build libraries shared" OFF)
 option(CURL_ZLIB "use curl with zlib" OFF)
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
-set(CPACK_PROJECT_VERSION 0.1.0)
+set(CPACK_PROJECT_VERSION 1.0.0)
 include(CPack)
 
 add_subdirectory(rust_jwt)

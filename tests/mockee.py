@@ -1,6 +1,6 @@
 from sanic import Sanic, response
 import argparse
-import jwt
+#import jwt         # we're simply going to test jwt ourselves and not on tests
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--port', type=int, required=True)
@@ -10,7 +10,7 @@ args = parser.parse_args()
 
 jwt_secret = None
 with open(args.jwt_secret) as f:
-    jwt_secret = f.read()
+    jwt_secret = f.read()[2:]
 
 
 app = Sanic(args.name)
@@ -30,12 +30,12 @@ async def get_response(request):
     #    return response.json({"status": "error", "error": "Content-Type must be application/json"})
 
     if request.json['method'] == 'eth_syncing':
-        if not request.headers.get('tester') == '1':
-            # we only check jwt here since otherwise we assume the CL will just pass the jwt
-            # strip bearer
-            token = request.headers.get('Authorization').split(' ')[1]
-            claims = jwt.decode(token, jwt_secret, algorithms='HS256', options={'require': ['iat']})
-            print(f'claims: {claims}')
+        #if not request.headers.get('tester') == '1':
+        #    # we only check jwt here since otherwise we assume the CL will just pass the jwt
+        #    # strip bearer
+        #    token = request.headers.get('Authorization').split(' ')[1]
+        #    claims = jwt.decode(token, jwt_secret, algorithms='HS256', options={'require': ['iat']})
+        #    print(f'claims: {claims}')
         return response.json({"jsonrpc": "2.0", "id": 1, "result": False})
 
     resp = await request.respond()

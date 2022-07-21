@@ -12,6 +12,10 @@ It has been tested and are working on Phase 0, as well as on merged testnets (ki
 ### Pre-Built Binaries
 Pre-Built Binaries are provided under the github realease.
 
+### Install Rust
+First, install Rust using [rustup](https://rustup.rs/). The rustup installer provides an easy way to update the Rust compiler, and works on all platforms.
+Rust is needed no matter your platform.
+
 ### Linux
 First, install the requirements:
 

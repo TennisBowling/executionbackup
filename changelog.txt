@@ -1,3 +1,2 @@
-## Executionbackup Version 0.1.0
-First release of the executionbackup package.
-Pre-built binaries are provided under this github release.
+# executionbackup v1.0.0
+The first runnable version of executionbackup, adding jwt authentication.
