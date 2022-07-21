@@ -61,6 +61,7 @@ std::string read_jwt(const std::string &filepath)
     {
         std::string jwt;
         filestream >> jwt;
+        jwt.erase(0, 2); // remove the "0x" prefix
         return jwt;
     }
     else
@@ -106,7 +107,6 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         exit(0);
     }
 
-    /*
     if (vm.count("nodes") == 0)
     {
         spdlog::critical("no nodes specified, exiting");
@@ -117,7 +117,7 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
     {
         spdlog::critical("no jwt secret specified, exiting");
         exit(1);
-    } */
+    }
 
     if (vm.count("port") == 0)
     {
