@@ -114,7 +114,7 @@ async def main():
     
     # start the EB binary
     # we need to fork off the binary and run it
-    subprocess.Popen(['build/Debug/executionbackup.exe', '--nodes', 'http://localhost:8001,http://localhost:8002,http://localhost:8003', '--port', '8545', '--jwt-secret', 'jwt.txt'])
+    subprocess.Popen(['build/executionbackup', '--nodes', 'http://localhost:8001,http://localhost:8002,http://localhost:8003', '--port', '8545', '--jwt-secret', 'jwt.txt'])
 
     time.sleep(2)
     print('starting tests')
