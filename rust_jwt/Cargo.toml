@@ -11,4 +11,4 @@ serde = {version = "1.0", features = ["derive"] }
 hex = "0.4"
 
 [lib]
-crate-type = ["staticlib", "dynlib"]
+crate-type = ["staticlib"]
