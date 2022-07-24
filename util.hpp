@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <fstream>
 #include <sstream>
+#include <iostream>
 #include <cpr/cpr.h>
 #include <boost/program_options.hpp>
 #include <boost/config.hpp>
