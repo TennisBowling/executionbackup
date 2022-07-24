@@ -9,8 +9,13 @@
 #include <boost/program_options.hpp>
 #include <boost/config.hpp>
 #include <spdlog/spdlog.h>
-#include "Simple-Web-Server/server_http.hpp"
-using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
+#include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
+#include "fields_alloc.hpp"
+namespace http = boost::beast::http; // from <boost/beast/http.hpp>
+
+//#include "Simple-Web-Server/server_http.hpp"
+// using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
 template <typename T>
 std::vector<T> join_all_async(std::vector<std::future<T>> &futures)
@@ -23,22 +28,12 @@ std::vector<T> join_all_async(std::vector<std::future<T>> &futures)
     return result;
 }
 
-cpr::Header multimap_to_cpr_header(SimpleWeb::CaseInsensitiveMultimap &headers)
+cpr::Header basic_fields_to_cpr_header(const http::basic_fields<fields_alloc<char>> &headers)
 {
     cpr::Header h;
     for (auto &header : headers)
     {
-        h[header.first] = header.second;
-    }
-    return h;
-}
-
-SimpleWeb::CaseInsensitiveMultimap cpr_header_to_multimap(cpr::Header &headers)
-{
-    SimpleWeb::CaseInsensitiveMultimap h;
-    for (auto &header : headers)
-    {
-        h.emplace(header.first, header.second);
+        h[header.name()] = header.value();
     }
     return h;
 }

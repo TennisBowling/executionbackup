@@ -2,9 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 #include "util.hpp"
-#include "Simple-Web-Server/server_http.hpp"
-#include <boost/asio/thread_pool.hpp>
-#include <boost/asio/post.hpp>
+#include "http_server.hpp"
 #include "rust_jwt/rust_jwt.hpp"
 #undef min
 #undef max
@@ -17,7 +15,7 @@
 #include <future>
 #include <thread>
 using json = nlohmann::json;
-using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
+// using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
 cpr::Header APPLICATIONJSON = {{"Content-Type", "application/json"}};
 std::string SYNCING_JSON = "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_syncing\",\"params\":[]}";
@@ -419,8 +417,7 @@ int main(int argc, char *argv[])
 
     // create threadpool with the amount of threads available
 
-    HttpServer server;
-    server.config.port = port;
+    HttpServer server{"0.0.0.0", port, 32};
 
     // create a node router
     NodeRouter router(urls, fcuinvalidthreshold, jwt);
@@ -436,29 +433,28 @@ int main(int argc, char *argv[])
                 router.recheck();
             } }); */
 
-    server.resource["/"]["POST"] = [&router](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request)
+    server.routes[std::string("/")] = [&router](HttpRequest &req, std::shared_ptr<HttpResponse> res)
     {
-        // response->close_connection_after_response = true;
-        auto body = request->content.string();
-        auto headers = multimap_to_cpr_header(request->header);
-        json j = json::parse(body);
+        json j = json::parse(req.body);
         if (j["method"].get<std::string>().starts_with("engine_"))
         {
             // call the router's engine route function and send the response back asynchronously
-            auto _ = std::async(std::launch::async, [&router, &body, &headers, &j, &response, &request]()
+            auto _ = std::async(std::launch::async, [&router, &j, &res, &req]()
                                 {
-                    auto resp = router.do_engine_route(body, j, headers);
-                    response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
+                auto resp = router.do_engine_route(req.body, j, req.headers);
+                res->headers = resp.headers;
+                res->body = resp.body;
+                res->status_code = resp.status; });
         }
         else
         {
             // call the router's route function and send the response back asynchronously
-            auto _ = std::async(std::launch::async, [&router, &body, &headers, &response, &request]()
+            auto _ = std::async(std::launch::async, [&router, &res, &req]()
                                 {
-                    auto resp = router.route(body, headers);
-                    response->write(resp.body, cpr_header_to_multimap(resp.headers)); });
+                auto resp = router.route(req.body, req.headers);
+                res->headers = resp.headers;
+                res->body = resp.body;
+                res->status_code = resp.status; });
         }
     };
-
-    server.start();
 }
