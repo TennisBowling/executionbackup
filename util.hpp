@@ -10,10 +10,6 @@
 #include <boost/program_options.hpp>
 #include <boost/config.hpp>
 #include <spdlog/spdlog.h>
-#include <boost/beast/core.hpp>
-#include <boost/beast/http.hpp>
-#include "fields_alloc.hpp"
-namespace http = boost::beast::http; // from <boost/beast/http.hpp>
 
 //#include "Simple-Web-Server/server_http.hpp"
 // using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
@@ -29,14 +25,16 @@ std::vector<T> join_all_async(std::vector<std::future<T>> &futures)
     return result;
 }
 
-cpr::Header basic_fields_to_cpr_header(const http::basic_fields<fields_alloc<char>> &headers)
+// get all header name and pairs and add them to a cstring, separating each pair with a semicolon
+const char *cpr_header_to_cstr(cpr::Header &header)
 {
-    cpr::Header h;
-    for (auto &header : headers)
+    std::stringstream ss;
+    for (auto &pair : header)
     {
-        h[header.name()] = header.value();
+        ss << pair.first << ": " << pair.second << ";";
     }
-    return h;
+    ss << "\r\n";
+    return ss.str().c_str();
 }
 
 void csv_to_vec(std::string csv, std::vector<std::string> &vec)

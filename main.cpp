@@ -2,8 +2,8 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 #include "util.hpp"
-#include "http_server.hpp"
 #include "rust_jwt/rust_jwt.hpp"
+#include "mongoose/mongoose.h"
 #undef min
 #undef max
 #include <iostream>
@@ -372,12 +372,41 @@ public:
         }
     }
 
-    request_result route(std::string &data, cpr::Header &headers)
+    request_result route_normal(std::string &data, cpr::Header &headers)
     {
         auto node = this->get_execution_node();
         return node.do_request(data, headers);
     }
 };
+
+// mongoose handler
+static void fn(struct mg_connection *c, int ev, void *ev_data, void *fn_data)
+{
+    if (ev == MG_EV_HTTP_MSG)
+    {
+        NodeRouter *router = (NodeRouter *)fn_data;
+        struct mg_http_message *hm = (struct mg_http_message *)ev_data;
+        std::string data = std::string(hm->body.ptr, hm->body.len);
+
+        cpr::Header headers;
+        for (int i = 0; i < MG_MAX_HTTP_HEADERS; i++)
+        {
+            headers[std::string(hm->headers[i].name.ptr, hm->headers[i].name.len)] = std::string(hm->headers[i].value.ptr, hm->headers[i].value.len);
+        }
+
+        json j = json::parse(data);
+        if (j["method"].get<std::string>().starts_with("engine_"))
+        {
+            auto res = router->do_engine_route(data, j, headers);
+            mg_http_reply(c, res.status, cpr_header_to_cstr(res.headers), res.body.c_str());
+        }
+        else
+        {
+            auto res = router->route_normal(data, headers);
+            mg_http_reply(c, res.status, cpr_header_to_cstr(res.headers), res.body.c_str());
+        }
+    }
+}
 
 int main(int argc, char *argv[])
 {
@@ -415,9 +444,18 @@ int main(int argc, char *argv[])
         fcuinvalidthreshold = vm["fcu-invalid-threshold"].as<double>();
     }
 
-    // create threadpool with the amount of threads available
+    std::string listenaddr;
 
-    HttpServer server{"0.0.0.0", port, 32};
+    if (vm.count("listen-addr") == 0)
+    {
+        listenaddr = std::string("0.0.0.0");
+    }
+    else
+    {
+        listenaddr = vm["listen-addr"].as<std::string>();
+    }
+
+    listenaddr = std::string("http://") + listenaddr + std::string(":") + std::to_string(port);
 
     // create a node router
     NodeRouter router(urls, fcuinvalidthreshold, jwt);
@@ -433,28 +471,13 @@ int main(int argc, char *argv[])
                 router.recheck();
             } }); */
 
-    server.routes[std::string("/")] = [&router](HttpRequest &req, std::shared_ptr<HttpResponse> res)
+    struct mg_mgr mgr;
+    mg_mgr_init(&mgr);
+    mg_http_listen(&mgr, listenaddr.c_str(), fn, &router);
+    for (;;)
     {
-        json j = json::parse(req.body);
-        if (j["method"].get<std::string>().starts_with("engine_"))
-        {
-            // call the router's engine route function and send the response back asynchronously
-            auto _ = std::async(std::launch::async, [&router, &j, &res, &req]()
-                                {
-                auto resp = router.do_engine_route(req.body, j, req.headers);
-                res->headers = resp.headers;
-                res->body = resp.body;
-                res->status_code = resp.status; });
-        }
-        else
-        {
-            // call the router's route function and send the response back asynchronously
-            auto _ = std::async(std::launch::async, [&router, &res, &req]()
-                                {
-                auto resp = router.route(req.body, req.headers);
-                res->headers = resp.headers;
-                res->body = resp.body;
-                res->status_code = resp.status; });
-        }
-    };
+        mg_mgr_poll(&mgr, 1000);
+    }
+    mg_mgr_free(&mgr);
+    return 0;
 }
