@@ -54,6 +54,9 @@ add_subdirectory(boost-cmake)
 target_link_libraries(executionbackup PUBLIC Boost::boost)
 target_link_libraries(executionbackup PUBLIC Boost::program_options)
 
+add_subdirectory(mongoose)
+target_link_libraries(executionbackup PUBLIC _mongoose)
+
 # add_subdirectory(cpp-jwt)
 # target_link_libraries(executionbackup PRIVATE cpp-jwt::cpp-jwt)
 include(FetchContent)
