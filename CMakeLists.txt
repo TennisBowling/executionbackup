@@ -54,8 +54,9 @@ add_subdirectory(boost-cmake)
 target_link_libraries(executionbackup PUBLIC Boost::boost)
 target_link_libraries(executionbackup PUBLIC Boost::program_options)
 
-add_subdirectory(mongoose)
-target_link_libraries(executionbackup PUBLIC _mongoose)
+set(RESTINIO_USE_BOOST_ASIO "static")
+add_subdirectory(restinio/dev)
+target_link_libraries(executionbackup PUBLIC ${RESTINIO_LIBS})
 
 # add_subdirectory(cpp-jwt)
 # target_link_libraries(executionbackup PRIVATE cpp-jwt::cpp-jwt)

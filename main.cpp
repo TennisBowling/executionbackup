@@ -3,7 +3,7 @@
 #include <nlohmann/json.hpp>
 #include "util.hpp"
 #include "rust_jwt/rust_jwt.hpp"
-#include "mongoose/mongoose.h"
+#include <restinio/all.hpp>
 #undef min
 #undef max
 #include <iostream>
@@ -379,35 +379,6 @@ public:
     }
 };
 
-// mongoose handler
-static void fn(struct mg_connection *c, int ev, void *ev_data, void *fn_data)
-{
-    if (ev == MG_EV_HTTP_MSG)
-    {
-        NodeRouter *router = (NodeRouter *)fn_data;
-        struct mg_http_message *hm = (struct mg_http_message *)ev_data;
-        std::string data = std::string(hm->body.ptr, hm->body.len);
-
-        cpr::Header headers;
-        for (int i = 0; i < MG_MAX_HTTP_HEADERS; i++)
-        {
-            headers[std::string(hm->headers[i].name.ptr, hm->headers[i].name.len)] = std::string(hm->headers[i].value.ptr, hm->headers[i].value.len);
-        }
-
-        json j = json::parse(data);
-        if (j["method"].get<std::string>().starts_with("engine_"))
-        {
-            auto res = router->do_engine_route(data, j, headers);
-            mg_http_reply(c, res.status, cpr_header_to_cstr(res.headers), res.body.c_str());
-        }
-        else
-        {
-            auto res = router->route_normal(data, headers);
-            mg_http_reply(c, res.status, cpr_header_to_cstr(res.headers), res.body.c_str());
-        }
-    }
-}
-
 int main(int argc, char *argv[])
 {
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%^%l%$] - %v"); // nice style that i like
@@ -455,8 +426,6 @@ int main(int argc, char *argv[])
         listenaddr = vm["listen-addr"].as<std::string>();
     }
 
-    listenaddr = std::string("http://") + listenaddr + std::string(":") + std::to_string(port);
-
     // create a node router
     NodeRouter router(urls, fcuinvalidthreshold, jwt);
 
@@ -471,13 +440,26 @@ int main(int argc, char *argv[])
                 router.recheck();
             } }); */
 
-    struct mg_mgr mgr;
-    mg_mgr_init(&mgr);
-    mg_http_listen(&mgr, listenaddr.c_str(), fn, &router);
-    for (;;)
-    {
-        mg_mgr_poll(&mgr, 1000);
-    }
-    mg_mgr_free(&mgr);
+    restinio::run(restinio::on_this_thread()
+                      .port(port)
+                      .address(listenaddr)
+                      .request_handler([](auto req)
+                                       {
+                                           cpr::Header h;
+                                           for (auto &fld = req->header())
+                                           {
+                                                  h[fld.first] = fld.second;
+                                           }
+
+                                           json j = json::parse(req->body());
+                                           if (j["method"].get<std::string>().starts_with("engine_"))
+                                           {
+                                               auto res = router.do_engine_route(req->body(), j, req->header());
+                                           }
+                                           else
+                                           {
+                                               auto res = router.route_normal(req->body(), req->header());
+                                           } }));
+
     return 0;
 }
