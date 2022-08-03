@@ -3,7 +3,7 @@
 #include <nlohmann/json.hpp>
 #include "util.hpp"
 #include "rust_jwt/rust_jwt.hpp"
-#include <restinio/all.hpp>
+#include <crow/crow_all.h>
 #undef min
 #undef max
 #include <iostream>
@@ -440,26 +440,50 @@ int main(int argc, char *argv[])
                 router.recheck();
             } }); */
 
-    restinio::run(restinio::on_this_thread()
-                      .port(port)
-                      .address(listenaddr)
-                      .request_handler([](auto req)
-                                       {
-                                           cpr::Header h;
-                                           for (auto &fld = req->header())
-                                           {
-                                                  h[fld.first] = fld.second;
-                                           }
+    crow::SimpleApp app;
+    CROW_ROUTE(app, "/")([&router](const crow::request& req){
 
-                                           json j = json::parse(req->body());
-                                           if (j["method"].get<std::string>().starts_with("engine_"))
-                                           {
-                                               auto res = router.do_engine_route(req->body(), j, req->header());
-                                           }
-                                           else
-                                           {
-                                               auto res = router.route_normal(req->body(), req->header());
-                                           } }));
+        req.keep_alive = true;
+        req.close_connection = true;
+
+        cpr::Header headers;
+        // req.headers is a unordered_map with some custom crow hashing
+        for(auto &header : req.headers)
+        {
+            headers[header.first] = header.second;
+        }
+
+        crow::response res;
+
+        json j = json::parse(req.body);
+        if(j["method"].get<std::string>().starts_with("engine_"))
+        {
+            auto router_resp = router.do_engine_route(req.body, j, headers);
+            res.code = router_resp.status_code;
+            res.body = router_resp.body;
+
+            for(auto &header : router_resp.headers)
+            {
+                res.add_header(header.first, header.second);
+            }
+
+        }
+        else
+        {
+            auto router_resp = router.do_route_normal(req.body, j, headers);
+            res.code = router_resp.status_code;
+            res.body = router_resp.body;
+
+            for(auto &header : router_resp.headers)
+            {
+                res.add_header(header.first, header.second);
+            }
+        }
+
+        return res;
+    });
+
+    app.bindaddr(listenaddr).port(port).multithreaded().run();
 
     return 0;
 }

@@ -10,3 +10,6 @@
 [submodule "restinio"]
 	path = restinio
 	url = https://github.com/Stiffstream/restinio.git
+[submodule "Crow"]
+	path = Crow
+	url = https://github.com/CrowCpp/Crow.git
