@@ -54,6 +54,7 @@ add_subdirectory(boost-cmake)
 target_link_libraries(executionbackup PUBLIC Boost::boost)
 target_link_libraries(executionbackup PUBLIC Boost::program_options)
 
+option(RESTINIO_USE_BOOST_ASIO "static" "static")
 add_subdirectory(Crow)
 target_link_libraries(executionbackup PUBLIC Crow::Crow)
 
