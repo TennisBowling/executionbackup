@@ -372,7 +372,7 @@ public:
         }
     }
 
-    request_result route_normal(std::string &data, cpr::Header &headers)
+    request_result route_normal(std::string data, cpr::Header headers)
     {
         auto node = this->get_execution_node();
         return node.do_request(data, headers);
