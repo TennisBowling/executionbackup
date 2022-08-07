@@ -472,7 +472,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            auto router_resp = router.route_normal(req.body, j, headers);
+            auto router_resp = router.route_normal(req.body, headers);
             res.code = router_resp.status;
             res.body = router_resp.body;
 
