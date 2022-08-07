@@ -442,12 +442,8 @@ int main(int argc, char *argv[])
 
     crow::SimpleApp app;
     CROW_ROUTE(app, "/")
-    ([&router](crow::request &req)
+    ([&router](const crow::request &req)
      {
-
-        req.keep_alive = true;
-        req.close_connection = true;
-
         cpr::Header headers;
         // req.headers is a unordered_map with some custom crow hashing
         for(auto &header : req.headers)
