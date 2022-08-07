@@ -3,7 +3,7 @@
 #include <nlohmann/json.hpp>
 #include "util.hpp"
 #include "rust_jwt/rust_jwt.hpp"
-#include <crow/crow_all.h>
+#include <crow.h>
 #undef min
 #undef max
 #include <iostream>
@@ -441,7 +441,9 @@ int main(int argc, char *argv[])
             } }); */
 
     crow::SimpleApp app;
-    CROW_ROUTE(app, "/")([&router](const crow::request& req){
+    CROW_ROUTE(app, "/")
+    ([&router](crow::request &req)
+     {
 
         req.keep_alive = true;
         req.close_connection = true;
@@ -459,7 +461,7 @@ int main(int argc, char *argv[])
         if(j["method"].get<std::string>().starts_with("engine_"))
         {
             auto router_resp = router.do_engine_route(req.body, j, headers);
-            res.code = router_resp.status_code;
+            res.code = router_resp.status;
             res.body = router_resp.body;
 
             for(auto &header : router_resp.headers)
@@ -470,8 +472,8 @@ int main(int argc, char *argv[])
         }
         else
         {
-            auto router_resp = router.do_route_normal(req.body, j, headers);
-            res.code = router_resp.status_code;
+            auto router_resp = router.route_normal(req.body, j, headers);
+            res.code = router_resp.status;
             res.body = router_resp.body;
 
             for(auto &header : router_resp.headers)
@@ -480,8 +482,7 @@ int main(int argc, char *argv[])
             }
         }
 
-        return res;
-    });
+        return res; });
 
     app.bindaddr(listenaddr).port(port).multithreaded().run();
 

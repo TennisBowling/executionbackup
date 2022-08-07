@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0.0)
+cmake_minimum_required(VERSION 3.14.0)
 cmake_policy(SET CMP0069 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 project(executionbackup)
@@ -54,13 +54,14 @@ add_subdirectory(boost-cmake)
 target_link_libraries(executionbackup PUBLIC Boost::boost)
 target_link_libraries(executionbackup PUBLIC Boost::program_options)
 
-option(RESTINIO_USE_BOOST_ASIO "static" "static")
+set(CROW_BUILD_EXAMPLES OFF)
+set(CROW_BUILD_TESTS OFF)
+set(CROW_INSTALL OFF)
 add_subdirectory(Crow)
-target_link_libraries(executionbackup PUBLIC Crow::Crow)
+target_link_libraries(executionbackup PRIVATE Crow::Crow)
 
 # add_subdirectory(cpp-jwt)
 # target_link_libraries(executionbackup PRIVATE cpp-jwt::cpp-jwt)
-include(FetchContent)
 FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git
     GIT_TAG db351ffbbadc6c4e9239daaa26e9aefa9f0ec82d)
 FetchContent_MakeAvailable(cpr)
