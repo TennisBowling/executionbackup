@@ -77,11 +77,12 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
     boost::program_options::options_description desc("Allowed options");
     desc.add_options()
 
-        ("help,h", "produce help message")                                                              // help message
-        ("version,v", "print version")                                                                  // version message
-        ("port,p", boost::program_options::value<int>(), "port to listen on")                           // port to listen on
-        ("nodes,n", boost::program_options::value<std::string>(), "comma separated list of nodes")      // comma separated list of nodes
-        ("fcu-invalid-threshold,fcu", boost::program_options::value<double>(), "fcU invalid threshold") // fcU invalid threshold
+        ("help,h", "produce help message")                                                                      // help message
+        ("version,v", "print version")                                                                          // version message
+        ("port,p", boost::program_options::value<int>(), "port to listen on")                                   // port to listen on
+        ("nodes,n", boost::program_options::value<std::string>(), "comma separated list of nodes")              // comma separated list of nodes
+        ("fcu-invalid-threshold,fcu", boost::program_options::value<double>(), "fcU invalid threshold")         // fcU invalid threshold
+        ("listen-addr,addr", boost::program_options::value<std::string>(), "address to listen on for json-rpc") // listen addr
         ("jwt-secret,jwt", boost::program_options::value<std::string>(), "The file path for the jwt secret file");
 
     boost::program_options::variables_map vm;

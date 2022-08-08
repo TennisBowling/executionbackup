@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 #include "util.hpp"
+#include "crow_log.hpp"
 #include "rust_jwt/rust_jwt.hpp"
 #include <crow.h>
 #undef min
@@ -440,10 +441,14 @@ int main(int argc, char *argv[])
                 router.recheck();
             } }); */
 
+    SpdLogAdapter adapter; // from crow_log.hpp
+    crow::logger::setHandler(&adapter);
+
     crow::SimpleApp app;
-    CROW_ROUTE(app, "/")
-    ([&router](const crow::request &req)
-     {
+    app.loglevel(crow::LogLevel::Warning);
+    CROW_ROUTE(app, "/").methods(crow::HTTPMethod::Post) // heres the routing lambda
+        ([&router](const crow::request &req)
+         {
         cpr::Header headers;
         // req.headers is a unordered_map with some custom crow hashing
         for(auto &header : req.headers)
