@@ -1,6 +1,3 @@
-[submodule "Simple-Web-Server"]
-	path = Simple-Web-Server
-	url = https://gitlab.com/eidheim/Simple-Web-Server.git
 [submodule "boost-cmake"]
 	path = boost-cmake
 	url = https://github.com/ClausKlein/boost-cmake.git

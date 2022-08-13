@@ -129,6 +129,8 @@ public:
             response = r.text;
             status = r.status_code;
             response_headers = r.header;
+            response_headers.erase("transfer-encoding"); // crow will auto set this header depending if it wants to chunk the response or not.
+                                                         // leaving it here will mean the client expects it to be chunked but crow doesn't chunk.
         }
         catch (const cpr::Error &e)
         {
@@ -388,7 +390,7 @@ int main(int argc, char *argv[])
     auto vm = parse_args(argc, argv);
     // get vm["nodes"] into a vector of strings
     std::vector<std::string> urls;
-    // urls.push_back("http://192.168.86.109:8551"); // my personal geth node
+    // urls.push_back("http://192.168.86.109:8545"); // my personal geth node
     csv_to_vec(vm["nodes"].as<std::string>(), urls);
 
     auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
