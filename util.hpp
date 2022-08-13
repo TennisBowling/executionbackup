@@ -97,7 +97,7 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
 
     if (vm.count("version"))
     {
-        std::cout << "executionbackup-cpp version 0.1.0 BETA\n";
+        std::cout << "executionbackup-cpp version 1.0.1\n";
         std::cout << "Compiled with " << BOOST_COMPILER << std::endl;
         exit(0);
     }
