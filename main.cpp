@@ -4,6 +4,8 @@
 #include "util.hpp"
 #include "crow_log.hpp"
 #include "rust_jwt/rust_jwt.hpp"
+#include <boost/asio/thread_pool.hpp>
+#include <boost/asio/post.hpp>
 #include <crow.h>
 #undef min
 #undef max
@@ -20,6 +22,8 @@ using json = nlohmann::json;
 
 cpr::Header APPLICATIONJSON = {{"Content-Type", "application/json"}};
 std::string SYNCING_JSON = "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_syncing\",\"params\":[]}";
+
+boost::asio::thread_pool pool(std::thread::hardware_concurrency());
 
 struct request_result
 {
@@ -257,14 +261,16 @@ public:
         {
             if (node.url_string != except_node.url_string)
             {
-                auto _ = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
+                boost::asio::post(pool, [&node, data, headers]()
+                                  { node.do_request(data, headers); });
             }
         }
         for (auto &node : this->alive_but_syncing)
         {
             if (node.url_string != except_node.url_string)
             {
-                auto _ = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
+                boost::asio::post(pool, [&node, data, headers]()
+                                  { node.do_request(data, headers); });
             }
         }
     }
@@ -273,7 +279,8 @@ public:
     {
         for (auto &node : this->alive_but_syncing)
         {
-            auto _ = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
+            boost::asio::post(pool, [&node, data, headers]()
+                              { node.do_request(data, headers); });
         }
     }
 
@@ -281,7 +288,8 @@ public:
     {
         for (auto &node : this->alive)
         {
-            auto _ = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
+            boost::asio::post(pool, [&node, data, headers]()
+                              { node.do_request(data, headers); });
         }
     }
 
