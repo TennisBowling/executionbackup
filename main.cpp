@@ -253,46 +253,6 @@ public:
         }
     }
 
-    // send to all nodes that are alive and syncing, except for the "primary" node
-    // also do it async
-    void send_to_alive_and_alivesyncing(std::string data, cpr::Header headers, NodeInstance except_node)
-    {
-        for (auto &node : this->alive)
-        {
-            if (node.url_string != except_node.url_string)
-            {
-                boost::asio::post(pool, [&node, data, headers]()
-                                  { node.do_request(data, headers); });
-            }
-        }
-        for (auto &node : this->alive_but_syncing)
-        {
-            if (node.url_string != except_node.url_string)
-            {
-                boost::asio::post(pool, [&node, data, headers]()
-                                  { node.do_request(data, headers); });
-            }
-        }
-    }
-
-    void send_to_alive_but_syncing(std::string data, cpr::Header headers)
-    {
-        for (auto &node : this->alive_but_syncing)
-        {
-            boost::asio::post(pool, [&node, data, headers]()
-                              { node.do_request(data, headers); });
-        }
-    }
-
-    void send_to_alive(std::string data, cpr::Header headers)
-    {
-        for (auto &node : this->alive)
-        {
-            boost::asio::post(pool, [&node, data, headers]()
-                              { node.do_request(data, headers); });
-        }
-    }
-
     // a function that gets the majority response from a vector of request_results
     // then checks if it is at least this->fcU_invalid_threshold (which is a decimal representation of a percentage)
     // if not, return empty string
@@ -352,7 +312,15 @@ public:
 
         // if we get here, all responses are VALID or SYNCING
         // send to syncing nodes using the first response
-        auto _ = std::async(std::launch::async, &NodeRouter::send_to_alive_but_syncing, this, resps[0].body, resps[0].headers);
+        boost::asio::post(pool, [this, resps]()
+                          {
+                            auto data = resps[0].body;
+                            auto headers = resps[0].headers;
+                            for (auto &node : this->alive_but_syncing)
+                            {
+                                boost::asio::post(pool, [&node, data, headers]()
+                                                { node.do_request(data, headers); });
+                            } });
         return resps[0];
     }
 
@@ -378,7 +346,24 @@ public:
             // wait for the primary node's response, but send to all other nodes
             auto node = this->get_execution_node();
             auto fut = std::async(std::launch::async, &NodeInstance::do_request, &node, data, headers);
-            auto _ = std::async(std::launch::async, &NodeRouter::send_to_alive_and_alivesyncing, this, data, headers, node);
+            boost::asio::post(pool, [this, data, headers, node]()
+                              {
+                for (auto &alivenode : this->alive)
+                {
+                    if (alivenode.url_string != node.url_string)
+                    {
+                        boost::asio::post(pool, [&alivenode, data, headers]()
+                                          { alivenode.do_request(data, headers); });
+                    }
+                }
+                for (auto &alivenode : this->alive_but_syncing)
+                {
+                    if (node.url_string != node.url_string)
+                    {
+                        boost::asio::post(pool, [&alivenode, data, headers]()
+                                          { alivenode.do_request(data, headers); });
+                    }
+                } });
             return fut.get();
         }
     }
@@ -403,6 +388,9 @@ int main(int argc, char *argv[])
 
     auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
     // auto jwt = read_jwt("C:\\Users\\FASTS\\OneDrive\\Documents\\github\\executionbackup\\jwt.txt");
+
+    boost::asio::post(pool, []()
+                      { spdlog::info("Starting threadpool with {} threads", std::thread::hardware_concurrency()); });
 
     int port;
 
