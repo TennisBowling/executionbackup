@@ -102,11 +102,29 @@ public:
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
-        json jsondata = json::parse(response.body);
+        json jsondata;
+        try
+        {
+            jsondata = json::parse(response.body);
+        }
+        catch (const json::parse_error &e)
+        {
+            this->set_offline();
+            spdlog::error("Error parsing json: {}", e.what());
+            spdlog::error("Response body: {}", response.body);
+            return check_alive_result{this, 0, elapsed};
+        }
+
         if (jsondata["result"] == false)
         {
             this->set_online();
             return check_alive_result{this, 1, elapsed};
+        }
+        else if (!jsondata["error"].get<std::string>().empty())
+        {
+            this->set_offline();
+            spdlog::error("Error while checking node {}: {}", this->url_string, jsondata["error"].get<std::string>());
+            return check_alive_result{this, 0, elapsed};
         }
         else
         {
@@ -139,7 +157,7 @@ public:
         catch (const cpr::Error &e)
         {
             this->set_offline();
-            std::cerr << "Error: " << e.message << std::endl;
+            spdlog::error("Error: {}", e.message);
         }
         return request_result{status, response, response_headers};
     }
@@ -168,7 +186,7 @@ public:
         catch (const cpr::Error &e)
         {
             this->set_offline();
-            std::cerr << "Error: " << e.message << std::endl;
+            spdlog::error("Error: {}", e.message);
         }
         return request_result{status, response, response_headers};
     }
@@ -383,7 +401,7 @@ int main(int argc, char *argv[])
     auto vm = parse_args(argc, argv);
     // get vm["nodes"] into a vector of strings
     std::vector<std::string> urls;
-    // urls.push_back("http://192.168.86.109:8545"); // my personal geth node
+    // urls.push_back("http://192.168.86.109:8551"); // my personal geth node
     csv_to_vec(vm["nodes"].as<std::string>(), urls);
 
     auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
@@ -483,7 +501,9 @@ int main(int argc, char *argv[])
 
         return res; });
 
-    app.bindaddr(listenaddr).port(port).multithreaded().run();
+    app.bindaddr(listenaddr).port(port).multithreaded();
+    spdlog::info("Listening on {}:{}", listenaddr, port);
+    app.run();
 
     return 0;
 }

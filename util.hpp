@@ -55,12 +55,18 @@ std::string read_jwt(const std::string &filepath)
     {
         std::string jwt;
         filestream >> jwt;
+
+        if (!jwt.starts_with("0x"))
+        {
+            spdlog::critical("JWT token is not properly formatted");
+        }
+
         jwt.erase(0, 2); // remove the "0x" prefix
         return jwt;
     }
     else
     {
-        spdlog::error("Unable to open file {} for jwt.", filepath);
+        spdlog::error("Unable to open file {} for the JWT secret.", filepath);
         exit(1);
     }
 }
@@ -97,26 +103,27 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
 
     if (vm.count("version"))
     {
-        std::cout << "executionbackup-cpp version 1.0.1\n";
+        std::cout << "executionbackup version 1.0.2\n";
         std::cout << "Compiled with " << BOOST_COMPILER << std::endl;
+        std::cout << "Made with love by tennis ;) <3" << std::endl;
         exit(0);
     }
 
     if (vm.count("nodes") == 0)
     {
-        spdlog::critical("no nodes specified, exiting");
+        spdlog::critical("No nodes specified, exiting.");
         exit(1);
     }
 
     if (vm.count("jwt-secret") == 0)
     {
-        spdlog::critical("no jwt secret specified, exiting");
+        spdlog::critical("No jwt secret specified, exiting.");
         exit(1);
     }
 
     if (vm.count("port") == 0)
     {
-        spdlog::warn("no port specified, using default port 8000");
+        spdlog::warn("No port specified, using default port 8000.");
     }
 
     return vm;
