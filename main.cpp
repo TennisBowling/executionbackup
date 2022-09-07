@@ -53,7 +53,7 @@ public:
     {
         this->url = cpr::Url{url};
         this->url_string = url;
-        this->status = 0;
+        // this->status = 0;
         this->jwt_secret = jwt_secret;
     }
 
@@ -142,19 +142,17 @@ public:
         headers.erase("Accept-Encoding");
         headers.emplace("Accept-Encoding", "identity");
 
-        try
-        {
-            auto r = cpr::Post(
-                this->url,
-                cpr::Body{data},
-                headers);
-            response = r.text;
-            status = r.status_code;
-            response_headers = r.header;
-            response_headers.erase("transfer-encoding"); // crow will auto set this header depending if it wants to chunk the response or not.
-                                                         // leaving it here will mean the client expects it to be chunked but crow doesn't chunk.
-        }
-        catch (const cpr::Error &e)
+        auto r = cpr::Post(
+            this->url,
+            cpr::Body{data},
+            headers);
+        response = r.text;
+        status = r.status_code;
+        response_headers = r.header;
+        response_headers.erase("transfer-encoding"); // crow will auto set this header depending if it wants to chunk the response or not.
+                                                     // leaving it here will mean the client expects it to be chunked but crow doesn't chunk.
+
+        if (status == 0)
         {
             this->set_offline();
             spdlog::error("Error: {}", e.message);
@@ -172,21 +170,19 @@ public:
         headers.erase("Accept-Encoding");
         headers.emplace("Accept-Encoding", "identity");
 
-        try
-        {
-            auto r = cpr::Post(
-                this->url,
-                cpr::Body{data},
-                headers,
-                cpr::Bearer{token});
-            response = r.text;
-            status = r.status_code;
-            response_headers = r.header;
-        }
-        catch (const cpr::Error &e)
+        auto r = cpr::Post(
+            this->url,
+            cpr::Body{data},
+            headers,
+            cpr::Bearer{token});
+        response = r.text;
+        status = r.status_code;
+        response_headers = r.header;
+
+        if (status == 0)
         {
             this->set_offline();
-            spdlog::error("Error: {}", e.message);
+            spdlog::error("Error: {}", r.error.message);
         }
         return request_result{status, response, response_headers};
     }
@@ -266,8 +262,19 @@ public:
         else
         {
             auto node = this->alive[this->index];
-            this->index = (this->index + 1) % this->alive.size();
-            return node;
+            if (node.status == 0)
+            {
+                this->index++;
+                if (this->index >= this->alive.size())
+                {
+                    this->index = 0;
+                }
+                return this->get_execution_node();
+            }
+            else
+            {
+                return node;
+            }
         }
     }
 
@@ -347,10 +354,12 @@ public:
         if (j["method"] == "engine_getPayloadV1") // getPayloadV1 is for getting a block to be proposed, so no use in getting from multiple nodes
         {
             auto node = this->get_execution_node();
+            spdlog::debug("getPayload request sent to {}", node.url_string);
             return node.do_request(data, headers);
         }
         else if (j["method"] == "engine_forkchoiceUpdatedV1")
         {
+            spdlog::debug("forkchoiceUpdated request sent to {} nodes", this->alive.size());
             std::vector<std::future<request_result>> futures;
             for (auto &node : this->alive)
             {
@@ -389,6 +398,7 @@ public:
     request_result route_normal(std::string data, cpr::Header headers)
     {
         auto node = this->get_execution_node();
+        spdlog::debug("Routing normal request to {}", node.url_string);
         return node.do_request(data, headers);
     }
 };
@@ -447,7 +457,7 @@ int main(int argc, char *argv[])
     NodeRouter router(urls, fcuinvalidthreshold, jwt);
 
     router.recheck();
-    /*
+
     // call recheck every 30s
     auto _ = std::async(std::launch::async, [&router]()
                         {
@@ -455,7 +465,7 @@ int main(int argc, char *argv[])
             {
                 std::this_thread::sleep_for(std::chrono::seconds(30));
                 router.recheck();
-            } }); */
+            } });
 
     SpdLogAdapter adapter; // from crow_log.hpp
     crow::logger::setHandler(&adapter);
@@ -475,8 +485,10 @@ int main(int argc, char *argv[])
         crow::response res;
 
         json j = json::parse(req.body);
+        spdlog::debug("Received request: {}", j.dump(4));
         if(j["method"].get<std::string>().starts_with("engine_"))
         {
+            spdlog::trace("Routing to engine route");
             auto router_resp = router.do_engine_route(req.body, j, headers);
             res.code = router_resp.status;
             res.body = router_resp.body;
@@ -489,6 +501,7 @@ int main(int argc, char *argv[])
         }
         else
         {
+            spdlog::trace("Routing to normal route");
             auto router_resp = router.route_normal(req.body, headers);
             res.code = router_resp.status;
             res.body = router_resp.body;

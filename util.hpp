@@ -83,12 +83,13 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
     boost::program_options::options_description desc("Allowed options");
     desc.add_options()
 
-        ("help,h", "produce help message")                                                                      // help message
-        ("version,v", "print version")                                                                          // version message
-        ("port,p", boost::program_options::value<int>(), "port to listen on")                                   // port to listen on
-        ("nodes,n", boost::program_options::value<std::string>(), "comma separated list of nodes")              // comma separated list of nodes
-        ("fcu-invalid-threshold,fcu", boost::program_options::value<double>(), "fcU invalid threshold")         // fcU invalid threshold
-        ("listen-addr,addr", boost::program_options::value<std::string>(), "address to listen on for json-rpc") // listen addr
+        ("help,h", "produce help message")                                                                                                             // help message
+        ("version,v", "print version")                                                                                                                 // version message
+        ("port,p", boost::program_options::value<int>(), "port to listen on")                                                                          // port to listen on
+        ("nodes,n", boost::program_options::value<std::string>(), "comma separated list of nodes")                                                     // comma separated list of nodes
+        ("fcu-invalid-threshold,fcu", boost::program_options::value<double>(), "fcU invalid threshold")                                                // fcU invalid threshold
+        ("listen-addr,addr", boost::program_options::value<std::string>(), "address to listen on for json-rpc")                                        // listen addr
+        ("log-level", boost::program_options::value<std::string>(), "verbosity of the program. Possible values: TRACE DEBUG INFO WARN ERROR CRITICAL") // log level
         ("jwt-secret,jwt", boost::program_options::value<std::string>(), "The file path for the jwt secret file");
 
     boost::program_options::variables_map vm;
@@ -109,6 +110,44 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         exit(0);
     }
 
+    if (vm.count("log-level"))
+    {
+        std::string log_level = vm["log-level"].as<std::string>();
+        if (log_level == "TRACE")
+        {
+            spdlog::set_level(spdlog::level::trace);
+        }
+        else if (log_level == "DEBUG")
+        {
+            spdlog::set_level(spdlog::level::debug);
+        }
+        else if (log_level == "INFO")
+        {
+            spdlog::set_level(spdlog::level::info);
+        }
+        else if (log_level == "WARN")
+        {
+            spdlog::set_level(spdlog::level::warn);
+        }
+        else if (log_level == "ERROR")
+        {
+            spdlog::set_level(spdlog::level::err);
+        }
+        else if (log_level == "CRITICAL")
+        {
+            spdlog::set_level(spdlog::level::critical);
+        }
+        else
+        {
+            spdlog::error("Invalid log level: {}", log_level);
+            exit(1);
+        }
+    }
+    else
+    {
+        spdlog::set_level(spdlog::level::info);
+    }
+    
     if (vm.count("nodes") == 0)
     {
         spdlog::critical("No nodes specified, exiting.");

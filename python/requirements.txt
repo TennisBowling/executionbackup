@@ -1,4 +1,0 @@
-aiohttp
-sanic
-ujson
-psutil
