@@ -4,6 +4,3 @@
 [submodule "cpp-jwt"]
 	path = cpp-jwt
 	url = https://github.com/arun11299/cpp-jwt.git
-[submodule "crow"]
-	path = crow
-	url = https://github.com/TennisBowling/crow.git
