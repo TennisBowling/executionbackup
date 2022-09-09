@@ -57,13 +57,6 @@ target_link_libraries(executionbackup PUBLIC Boost::program_options)
 set(CROW_BUILD_EXAMPLES OFF)
 set(CROW_BUILD_TESTS OFF)
 set(CROW_INSTALL OFF)
-include(cmake/CPM.cmake)
-CPMAddPackage("gh:chriskohlhoff/asio#asio-1-18-1@1.18.1")
-
-if(ASIO_ADDED)
-    set(ASIO_INCLUDE_DIR ${asio_SOURCE_DIR}/asio/include)
-endif()
-
 add_subdirectory(crow)
 target_link_libraries(executionbackup PRIVATE Crow::Crow)
 

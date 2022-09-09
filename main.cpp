@@ -155,7 +155,7 @@ public:
         if (status == 0)
         {
             this->set_offline();
-            spdlog::error("Error: {}", e.message);
+            spdlog::error("Error: {}", r.error.message);
         }
         return request_result{status, response, response_headers};
     }
