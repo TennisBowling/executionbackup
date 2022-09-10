@@ -57,7 +57,7 @@ target_link_libraries(executionbackup PUBLIC Boost::program_options)
 set(CROW_BUILD_EXAMPLES OFF)
 set(CROW_BUILD_TESTS OFF)
 set(CROW_INSTALL OFF)
-add_subdirectory(crow)
+add_subdirectory(Crow)
 target_link_libraries(executionbackup PRIVATE Crow::Crow)
 
 # add_subdirectory(cpp-jwt)
