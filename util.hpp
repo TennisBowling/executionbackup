@@ -104,7 +104,7 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
 
     if (vm.count("version"))
     {
-        std::cout << "executionbackup version 1.0.2\n";
+        std::cout << "executionbackup version 1.0.4\n";
         std::cout << "Compiled with " << BOOST_COMPILER << std::endl;
         std::cout << "Made with love by tennis ;) <3" << std::endl;
         exit(0);
@@ -147,7 +147,7 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
     {
         spdlog::set_level(spdlog::level::info);
     }
-    
+
     if (vm.count("nodes") == 0)
     {
         spdlog::critical("No nodes specified, exiting.");

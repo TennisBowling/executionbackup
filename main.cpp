@@ -102,6 +102,11 @@ public:
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
+        if (response.status == 0)
+        {
+            return {this, 0, elapsed};
+        }
+
         json jsondata;
         try
         {
@@ -115,12 +120,12 @@ public:
             return check_alive_result{this, 0, elapsed};
         }
 
-        if (jsondata["result"] == false)
+        if (jsondata["result"].is_null())
         {
             this->set_online();
             return check_alive_result{this, 1, elapsed};
         }
-        else if (!jsondata["error"].get<std::string>().empty())
+        else if (!jsondata["error"].is_null())
         {
             this->set_offline();
             spdlog::error("Error while checking node {}: {}", this->url_string, jsondata["error"].get<std::string>());
@@ -411,7 +416,7 @@ int main(int argc, char *argv[])
     auto vm = parse_args(argc, argv);
     // get vm["nodes"] into a vector of strings
     std::vector<std::string> urls;
-    // urls.push_back("http://192.168.86.109:8551"); // my personal geth node
+    // urls.push_back("http://192.168.86.109:9992"); // my personal geth node
     csv_to_vec(vm["nodes"].as<std::string>(), urls);
 
     auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
