@@ -120,7 +120,7 @@ public:
             return check_alive_result{this, 0, elapsed};
         }
 
-        if (jsondata["result"].is_null())
+        if (jsondata["result"].is_boolean())
         {
             this->set_online();
             return check_alive_result{this, 1, elapsed};
@@ -416,7 +416,7 @@ int main(int argc, char *argv[])
     auto vm = parse_args(argc, argv);
     // get vm["nodes"] into a vector of strings
     std::vector<std::string> urls;
-    // urls.push_back("http://192.168.86.109:9992"); // my personal geth node
+    // urls.push_back("http://192.168.86.109:8881"); // my personal geth node
     csv_to_vec(vm["nodes"].as<std::string>(), urls);
 
     auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
