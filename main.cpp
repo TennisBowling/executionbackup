@@ -2,13 +2,10 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 #include "util.hpp"
-#include "crow_log.hpp"
 #include "rust_jwt/rust_jwt.hpp"
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/post.hpp>
-#include <crow.h>
-#undef min
-#undef max
+#include "Simple-Web-Server/server_http.hpp"
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -17,13 +14,20 @@
 #include <map>
 #include <future>
 #include <thread>
+#include <csignal>
 using json = nlohmann::json;
-// using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
+using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
 cpr::Header APPLICATIONJSON = {{"Content-Type", "application/json"}};
 std::string SYNCING_JSON = "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_syncing\",\"params\":[]}";
 
 boost::asio::thread_pool pool(std::thread::hardware_concurrency());
+
+void signal_handler(int signal)
+{
+    spdlog::info("Caught signal {}, stopping.", signal);
+    exit(signal);
+}
 
 struct request_result
 {
@@ -458,10 +462,18 @@ int main(int argc, char *argv[])
         listenaddr = vm["listen-addr"].as<std::string>();
     }
 
+    HttpServer server;
+    server.config.port = port;
+    server.config.address = listenaddr;
+
     // create a node router
     NodeRouter router(urls, fcuinvalidthreshold, jwt);
 
     router.recheck();
+
+    // setup signal handler
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
 
     // call recheck every 30s
     auto _ = std::async(std::launch::async, [&router]()
@@ -472,56 +484,48 @@ int main(int argc, char *argv[])
                 router.recheck();
             } });
 
-    SpdLogAdapter adapter; // from crow_log.hpp
-    crow::logger::setHandler(&adapter);
-
-    crow::SimpleApp app;
-    app.loglevel(crow::LogLevel::Warning);
-    CROW_ROUTE(app, "/").methods(crow::HTTPMethod::Post) // heres the routing lambda
-        ([&router](const crow::request &req)
-         {
+    server.resource["/"]["POST"] = [&router](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request)
+    {
+        boost::asio::post(pool, [&router, response, request]()
+                          {
+            std::string body = request->content.string();
         cpr::Header headers;
-        // req.headers is a unordered_map with some custom crow hashing
-        for(auto &header : req.headers)
+        // req->header is a unordered_map with only lowercase
+        for (auto &header : request->header)
         {
             headers[header.first] = header.second;
         }
 
-        crow::response res;
-
-        json j = json::parse(req.body);
-        spdlog::debug("Received request: {}", j.dump(4));
-        if(j["method"].get<std::string>().starts_with("engine_"))
+        json j = json::parse(body);
+        spdlog::debug("Received engine request: {}", j.dump(4));
+        if (j["method"].get<std::string>().starts_with("engine_"))
         {
             spdlog::trace("Routing to engine route");
-            auto router_resp = router.do_engine_route(req.body, j, headers);
-            res.code = router_resp.status;
-            res.body = router_resp.body;
+            auto router_resp = router.do_engine_route(body, j, headers);
 
-            for(auto &header : router_resp.headers)
+            SimpleWeb::CaseInsensitiveMultimap headermap;
+            for (auto &header : router_resp.headers)
             {
-                res.add_header(header.first, header.second);
+                headermap.emplace(header.first, header.second);
             }
-
+            response->write(status_code_to_enum[router_resp.status], router_resp.body, headermap);
         }
         else
         {
             spdlog::trace("Routing to normal route");
-            auto router_resp = router.route_normal(req.body, headers);
-            res.code = router_resp.status;
-            res.body = router_resp.body;
+            auto router_resp = router.route_normal(body, headers);
 
-            for(auto &header : router_resp.headers)
+            SimpleWeb::CaseInsensitiveMultimap headermap;
+            for (auto &header : router_resp.headers)
             {
-                res.add_header(header.first, header.second);
+                headermap.emplace(header.first, header.second);
             }
-        }
+            response->write(status_code_to_enum[router_resp.status], router_resp.body, headermap);
+        } });
+    };
 
-        return res; });
-
-    app.bindaddr(listenaddr).port(port).multithreaded();
     spdlog::info("Listening on {}:{}", listenaddr, port);
-    app.run();
+    server.start();
 
     return 0;
 }

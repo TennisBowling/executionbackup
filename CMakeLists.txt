@@ -54,12 +54,6 @@ add_subdirectory(boost-cmake)
 target_link_libraries(executionbackup PUBLIC Boost::boost)
 target_link_libraries(executionbackup PUBLIC Boost::program_options)
 
-set(CROW_BUILD_EXAMPLES OFF)
-set(CROW_BUILD_TESTS OFF)
-set(CROW_INSTALL OFF)
-add_subdirectory(Crow)
-target_link_libraries(executionbackup PRIVATE Crow::Crow)
-
 # add_subdirectory(cpp-jwt)
 # target_link_libraries(executionbackup PRIVATE cpp-jwt::cpp-jwt)
 FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git

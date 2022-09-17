@@ -7,3 +7,6 @@
 [submodule "Crow"]
 	path = Crow
 	url = https://github.com/tennisbowling/Crow.git
+[submodule "Simple-Web-Server"]
+	path = Simple-Web-Server
+	url = https://gitlab.com/eidheim/Simple-Web-Server.git
