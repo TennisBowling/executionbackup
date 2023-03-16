@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 ubuntu:20.04 as failover
+FROM --platform=linux/amd64 ubuntu:22.04 as failover
 
 WORKDIR /tmp
 
