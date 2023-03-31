@@ -1,68 +1,36 @@
-# executionbackup-cpp
-[![Total alerts](https://img.shields.io/lgtm/alerts/g/TennisBowling/executionbackup.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/TennisBowling/executionbackup/alerts/)
+# executionbackup
+A Ethereum 2.0 multiplexer enabling execution node failover and multiplexing
 
-executionbackup is a multiplexer between consensus and execution nodes.
+## Installing
+EB has provided releases for Linux, Windows, and MacOS.
+You can download the latest release [here](https://github.com/tennisbowlin/executionbackup-rust/releases/latest).
 
-executionbackup lets one (and only one) consensus node to pilot multiple execution nodes.  
-
-It has been tested and are working on Phase 0, as well as on merged testnets (kiln).
-
-## Running
-
-### Pre-Built Binaries
-Pre-Built Binaries are provided under the github realease.
-
-### Install Rust
-First, install Rust using [rustup](https://rustup.rs/). The rustup installer provides an easy way to update the Rust compiler, and works on all platforms.
-Rust is needed no matter your platform.
-
-### Linux
-First, install the requirements:
-
+You can also build from source using the following commands:
 ```bash
-sudo apt install -y build-essential cmake
+git clone https://github.com/tennisbowling/executionbackup-rust.git
+cd executionbackup-rust
+make build
+```
+And replacing `make build` with `cargo build --profile highperf --target-dir bin` for windows.
+
+## Usage
+```bash
+executionbackup -n http://node1:port,http://node2:port -j /path/to/jwt_secret
 ```
 
-Then clone the repo and build:
+## How it works
+EB multiplexes multiple EL's together.
+Truth Table for responses to CL when EL's are different:
+| EL1     | EL2     | EL3     | RESULT  |
+|---------|---------|---------|---------|
+| VALID   | VALID   | VALID   | VALID   |
+| INVALID | INVALID | INVALID | INVALID |
+| VALID   | VALID   | SYNCING | VALID   |
+| VALID   | VALID   | INVALID | SYNCING |
+| INVALID | INVALID | VALID   | INVALID |
+| INVALID | INVALID | SYNCING | INVALID |
 
-```bash
-git clone --recursive https://github.com/tennisbowling/executionbackup.git
-cd executionbackup
-make
-```
-
-Binaries will be in the `bin` folder
-
-### Windows
-Requirements:
-- [Visual Studio (with the c++ compiler)](https://visualstudio.microsoft.com/downloads/)
-- [Cmake](https://cmake.org/download/)
-
-
-Clone:
-```bash
-git clone --recursive https://github.com/tennisbowling/executionbackup.git
-cd executionbackup/executionbackup-cpp
-```
-
-Then build:
-```bash
-cmake -S . -DCMAKE_BUILD_TYPE=Release
-cmake --build . --config Release
-```
-
-Binaries will be in the `bin` folder
+* Results of SYNCING are checked to verify if payload.block_hash is equal to keccak256(rlp(block_header)) to not get inconsistent block hashes in a supermajority  
+* Rows 3, 5, 6 are determined by the fcu-invalid-threshold parameter that determins what percentage of EL's are needed to be considered a majority and be the result
 
 
-
-
-## Support
-Contact me on discord at TennisBowling#7174
-
-
-## TODO
-- Add real tests - tests right now are made by spinning an actual EE (multiple) and CL on kiln/whatever current testnet there is. While this is extremely effective - simulating actual network conditions, it is slow.
-- connection speedups to the EE (I already know how I'm planning on doing this)
-
-## Dockerized Version
-You can find a dockerized version for easy setup under `dockerized` folder

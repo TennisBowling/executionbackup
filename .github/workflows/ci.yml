@@ -1,0 +1,161 @@
+name: CI Build Matrix
+
+on: 
+  push:
+    tags:
+    - "*"
+    branches:
+     - "*"
+  pull_request:
+
+env:
+  REPO_NAME: tennisbowling/executionbackup-rust
+
+jobs:
+  build:
+        name:   Build Release
+        strategy:
+            matrix:
+                arch: [x86_64-unknown-linux-gnu,
+                       x86_64-apple-darwin,
+                       x86_64-windows]
+                include:
+                    -   arch: x86_64-unknown-linux-gnu
+                        platform: ubuntu-latest
+                    -   arch: x86_64-apple-darwin
+                        platform: macos-latest
+                    -   arch: x86_64-windows
+                        platform: windows-2019
+      
+        runs-on: ${{ matrix.platform }}
+        steps:
+            - name: Checkout sources
+              uses: actions/checkout@v2
+            - name: Build toolchain
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  profile:  minimal
+                  override: true
+
+            # ==============================
+            # Windows dependencies
+            # ==============================
+
+            - uses: KyleMayes/install-llvm-action@v1
+              if: startsWith(matrix.arch, 'x86_64-windows')
+              with:
+                version: "13.0"
+                directory: ${{ runner.temp }}/llvm
+            - name: Set LIBCLANG_PATH
+              if: startsWith(matrix.arch, 'x86_64-windows')
+              run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
+              
+
+  
+            # ==============================
+            # Build
+            # ==============================
+
+
+            - name: Build EB for x86_64-unknown-linux-gnu
+              if:   matrix.arch == 'x86_64-unknown-linux-gnu'
+              run:  cargo install --path . --force --locked --profile highperf
+
+            - name: Build EB for x86_64-apple-darwin
+              if:   matrix.arch == 'x86_64-apple-darwin'
+              run:  cargo install --path . --force --locked --profile highperf
+
+            - name: Build EB for Windows
+              if:   matrix.arch == 'x86_64-windows'
+              run:  cargo install --path . --force --locked --profile highperf
+        
+            - name: Zip binary
+              if:   startsWith(matrix.arch, 'x86_64-windows') != true
+              run: |
+                    mkdir artifacts
+                    mv ~/.cargo/bin/executionbackup-rust ./artifacts
+                    cd artifacts
+                    tar -czf executionbackup-rust-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz executionbackup-rust
+                    mv *.tar.gz ..
+            
+            - name: Zip binary Windows
+              if:   startsWith(matrix.arch, 'x86_64-windows')
+              run: |
+                    mkdir artifacts
+                    move $env:USERPROFILE/.cargo/bin/executionbackup-rust.exe ./artifacts
+                    cd artifacts
+                    tar -czf executionbackup-rust-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz executionbackup-rust.exe
+                    move *tar.gz ..
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v2
+              with:
+                name: executionbackup-rust-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz
+                path: executionbackup-rust-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz
+    
+  release:
+    if: contains(github.ref, 'tags/v')
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: ${{ steps.read_changelog.outputs.changelog }}
+          draft: false
+          prerelease: false
+
+      - name: Store Release url
+        run: |
+          echo "${{ steps.create_release.outputs.upload_url }}" > ./upload_url
+      - uses: actions/upload-artifact@v2
+        with:
+          path: ./upload_url
+          name: upload_url
+
+  publish:
+    if: contains(github.ref, 'tags/v')
+    name: ${{ matrix.config.name }}
+    strategy:
+        matrix:
+            arch: [x86_64-unknown-linux-gnu,
+                   x86_64-apple-darwin,
+                   x86_64-windows]
+    runs-on: ubuntu-latest
+    needs: release    
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: executionbackup-rust-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz
+          path: ./
+      
+      - name: Download URL
+        uses: actions/download-artifact@v2
+        with:
+          name: upload_url
+          path: ./
+      - id: set_upload_url
+        run: |
+          upload_url=`cat ./upload_url`
+          echo ::set-output name=upload_url::$upload_url
+          ls
+
+      - name: Upload to Release
+        id: upload_to_release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.set_upload_url.outputs.upload_url }}
+          asset_path: ./executionbackup-rust-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz
+          asset_name: executionbackup-rust-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz
+          asset_content_type: application/gzip

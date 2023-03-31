@@ -1,0 +1,30 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Cargo launch",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=executionbackup-rust"
+                ]
+            },
+            "args": [
+                "--nodes",
+                "http://192.168.86.109:8551,http://192.168.86.36:8551",
+                "--port",
+                "8551",
+                "--log-level",
+                "debug"
+            ]
+        },
+        {
+            "type": "lldb",
+            "request": "attach",
+            "name": "Attach",
+            "pid": "${command:pickMyProcess}" // use ${command:pickProcess} to pick other users' processes
+        }
+    ]
+}

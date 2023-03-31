@@ -1,9 +1,0 @@
-version: "3"
-
-services:
-  failover:
-    build: src
-    restart: unless-stopped
-    env_file: .env
-    ports:
-      - 80:9090

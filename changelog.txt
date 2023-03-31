@@ -1,2 +1,0 @@
-# executionbackup v1.0.0
-The first runnable version of executionbackup, adding jwt authentication.
