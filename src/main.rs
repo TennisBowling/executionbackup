@@ -476,7 +476,7 @@ impl NodeRouter {
         j: &serde_json::Value,
         jwt_token: String,
     ) -> (String, u16) {
-        if j["method"] == "engine_getPayloadV1"
+        if j["method"] == "engine_getPayloadV1" || j["method"] == "engine_getPayloadV2"
         // getPayloadV1 is for getting a block to be proposed, so no use in getting from multiple nodes
         {
             let node = self.get_execution_node().await;
@@ -493,7 +493,8 @@ impl NodeRouter {
                     (e.to_string(), 500)
                 }
             }
-        } else if j["method"] == "engine_forkchoiceUpdatedV1" || j["method"] == "engine_newPayloadV1" {
+        } else if j["method"] == "engine_forkchoiceUpdatedV1" || j["method"] == "engine_newPayloadV1" || 
+        j["method"] == "engine_forkchoiceUpdatedV2" || j["method"] == "engine_newPayloadV2" {
             tracing::debug!("Sending {} to alive nodes", j["method"]);
             let mut resps: Vec<String> = Vec::new();
             let alive_nodes = self.alive_nodes.read().await;
@@ -622,7 +623,7 @@ async fn main() {
         .setting(clap::AppSettings::ColoredHelp)
         .about("A Ethereum 2.0 multiplexer enabling execution node failover post-merge")
         .long_version(
-            "executionbackup version 1.0.2 by TennisBowling <tennisbowling@tennisbowling.com>",
+            "executionbackup version 1.0.5 by TennisBowling <tennisbowling@tennisbowling.com>",
         )
         .arg(
             clap::Arg::with_name("port")
