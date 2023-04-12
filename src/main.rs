@@ -15,7 +15,7 @@ use tokio::{time::Duration, sync::RwLock};
 
 use crate::verify_hash::verify_payload_block_hash;
 mod verify_hash;
-use types::{ExecutionPayload, PayloadStatusV1, PayloadStatusV1Status};
+use types::{ExecutionPayload};
 
 
 
@@ -181,7 +181,7 @@ impl Node {
             .header("Content-Type", "application/json")
             .header("Authorization", jwt_token)
             .body(data)
-            .timeout(Duration::from_secs(1))
+            .timeout(Duration::from_millis(1500))
             .send()
             .await;
 
@@ -406,10 +406,20 @@ impl NodeRouter {
         jwt_token: String,
         id: u64,
     ) -> String {
+
+        if resps.is_empty() {
+            // no responses, so return SYNCING
+            tracing::error!("No responses, returning SYNCING.");
+            let req = serde_json::from_str::<serde_json::Value>(&req).unwrap();
+            return make_syncing_str(id, &req["params"][0], &req["method"].to_string());
+        }
+
+
         let majority = self.fcu_majority(resps);
 
         if majority.is_none() {
             // no majority, so return SYNCING
+            tracing::error!("No majority, returning SYNCING.");
             let req = serde_json::from_str::<serde_json::Value>(&req).unwrap();
             return make_syncing_str(id, &req["params"][0], &req["method"].to_string());
         }
@@ -506,7 +516,7 @@ impl NodeRouter {
                     }
                     Err(e) => {
                         tracing::error!("{} error: {}", j["method"], e);
-                        resps.push(e.to_string());
+                        //resps.push(e.to_string());
                     }
                 }
             }

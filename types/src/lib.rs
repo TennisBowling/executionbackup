@@ -53,6 +53,13 @@ impl PayloadStatusV1 {
 
 }
 
+pub struct Withdrawal {
+    pub index: u64,
+    pub validator_index: u64,
+    pub address: Address,
+    pub amount: u64
+}
+
 
 pub struct ExecutionPayload {
     pub parent_hash: H256,
@@ -69,6 +76,7 @@ pub struct ExecutionPayload {
     pub base_fee_per_gas: U256,
     pub block_hash: H256,
     pub transactions: Vec<Vec<u8>>,
+    pub withdrawals: Vec<Withdrawal>,
 }
 
 impl ExecutionPayload {
@@ -87,6 +95,12 @@ impl ExecutionPayload {
         let base_fee_per_gas = U256::from_str_radix(&payload["baseFeePerGas"].as_str().unwrap()[2..], 16)?;
         let block_hash = H256::from_slice(&hex::decode(payload["blockHash"].as_str().unwrap()[2..].to_string())?);
         let transactions = payload["transactions"].as_array().unwrap().iter().map(|txn| txn.as_str().unwrap().to_string()).collect::<Vec<String>>().iter().map(|txn| txn[2..].to_string()).map(|txn_str| hex::decode(txn_str).unwrap()).collect::<Vec<Vec<u8>>>();
+        let withdrawals = payload["withdrawals"].as_array().unwrap().iter().map(|withdrawal| Withdrawal {
+            index: withdrawal["index"].as_u64().unwrap(),
+            validator_index: withdrawal["validatorIndex"].as_u64().unwrap(),
+            address: Address::from_slice(&hex::decode(withdrawal["address"].as_str().unwrap()[2..].to_string()).unwrap()),
+            amount: withdrawal["amount"].as_u64().unwrap(),
+        }).collect::<Vec<Withdrawal>>();
 
         Ok(ExecutionPayload {
             parent_hash,
@@ -103,6 +117,7 @@ impl ExecutionPayload {
             base_fee_per_gas,
             block_hash,
             transactions,
+            withdrawals,
         })
     }
 }
@@ -128,6 +143,7 @@ pub struct ExecutionBlockHeader {
     pub mix_hash: H256,
     pub nonce: H64,
     pub base_fee_per_gas: U256,
+    pub withdrawals_root: H256,
 }
 
 impl ExecutionBlockHeader {
@@ -135,6 +151,7 @@ impl ExecutionBlockHeader {
         payload: &ExecutionPayload,
         rlp_empty_list_root: H256,
         rlp_transactions_root: H256,
+        rlp_withdrawals_root: H256,
     ) -> Self {
         // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
         // defined in EIP-4399.
@@ -155,6 +172,7 @@ impl ExecutionBlockHeader {
             mix_hash: payload.prev_randao,
             nonce: H64::zero(),
             base_fee_per_gas: payload.base_fee_per_gas,
+            withdrawals_root: rlp_withdrawals_root,
         }
     }
 }

@@ -24,7 +24,7 @@ use rlp::RlpStream;
 use ethereum_types::{H256, U256, H64, Address};
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use types::keccak::{KeccakHasher, keccak256};
-use types::{ExecutionBlockHeader, ExecutionPayload, map_execution_block_header_fields};
+use types::{ExecutionBlockHeader, ExecutionPayload, map_execution_block_header_fields, Withdrawal};
 
 
 // Thank you lighthouse team! https://github.com/sigp/lighthouse/blob/stable/beacon_node/execution_layer/src/block_hash.rs#L50-L59
@@ -39,6 +39,17 @@ pub fn rlp_encode_block_header(header: &ExecutionBlockHeader) -> Vec<u8> {
     rlp_header_stream.out().into()
 }
 
+/// RLP encode a withdrawal.
+pub fn rlp_encode_withdrawal(withdrawal: &Withdrawal) -> Vec<u8> {
+    let mut rlp_stream = RlpStream::new();
+    rlp_stream.begin_list(4);
+    rlp_stream.append(&withdrawal.index);
+    rlp_stream.append(&withdrawal.validator_index);
+    rlp_stream.append(&withdrawal.address);
+    rlp_stream.append(&withdrawal.amount);
+    rlp_stream.out().into()
+}
+
 // Thank you lighthouse team again! https://github.com/sigp/lighthouse/blob/stable/beacon_node/execution_layer/src/block_hash.rs#L17-L48
 pub fn verify_payload_block_hash(payload: &ExecutionPayload) -> Result<(), Box<dyn Error>> {
 
@@ -49,11 +60,19 @@ pub fn verify_payload_block_hash(payload: &ExecutionPayload) -> Result<(), Box<d
         payload.transactions.iter().map(|txn_bytes| &**txn_bytes),
     );
 
+    // Calculate withdrawals root (post-Capella).
+    let rlp_withdrawals_root = ordered_trie_root::<KeccakHasher, _>(
+        payload.withdrawals.iter().map(|withdrawal| {
+            rlp_encode_withdrawal(withdrawal)
+        }),
+    );
+
     // Construct the block header.
     let exec_block_header = ExecutionBlockHeader::from_payload(
         payload,
         KECCAK_EMPTY_LIST_RLP.as_fixed_bytes().into(),
         rlp_transactions_root,
+        rlp_withdrawals_root,
     );
 
 
