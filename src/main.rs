@@ -2,7 +2,7 @@ use axum::{
     self,
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    Extension, Router,
+    Extension, Router, extract::DefaultBodyLimit,
 };
 use futures::{self};
 use jsonwebtoken::{self, EncodingKey};
@@ -755,7 +755,8 @@ async fn main() {
     // setup axum server
     let app = Router::new()
         .route("/", axum::routing::post(route_all))
-        .layer(Extension(router.clone()));
+        .layer(Extension(router.clone()))
+        .layer(DefaultBodyLimit::disable());    // no body limit since some requests can be quite large
 
     let addr = format!("{}:{}", listen_addr, port);
     let addr: SocketAddr = addr.parse().unwrap();
