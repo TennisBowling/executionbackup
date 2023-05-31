@@ -19,6 +19,7 @@ use types::{ExecutionPayload};
 
 
 
+const VERSION: &str = "1.0.6";
 const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -628,12 +629,13 @@ async fn route_all(
 #[tokio::main]
 async fn main() {
     let matches = clap::App::new("executionbackup")
-        .version("1.0.2")
+        .version(VERSION)
         .author("TennisBowling <tennisbowling@tennisbowling.com>")
         .setting(clap::AppSettings::ColoredHelp)
         .about("A Ethereum 2.0 multiplexer enabling execution node failover post-merge")
-        .long_version(
-            "executionbackup version 1.0.5 by TennisBowling <tennisbowling@tennisbowling.com>",
+        .long_version(&*format!(
+            "executionbackup version {} by TennisBowling <tennisbowling@tennisbowling.com>",
+            VERSION)
         )
         .arg(
             clap::Arg::with_name("port")
@@ -711,7 +713,7 @@ async fn main() {
     // set log level with tracing subscriber
     let subscriber = tracing_subscriber::fmt().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-    tracing::info!("Starting executionbackup version 1.0.2");
+    tracing::info!("Starting executionbackup version {VERSION}");
 
     tracing::info!("fcu invalid threshold set to: {}", fcu_invalid_threshold);
     let fcu_invalid_threshold = fcu_invalid_threshold
