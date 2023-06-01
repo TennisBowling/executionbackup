@@ -13,3 +13,7 @@ Cargo.lock
 # Added by cargo
 
 /target
+
+# Secret files for containerized version
+.env
+.jwt

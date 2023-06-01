@@ -1,0 +1,4 @@
+NODES=<comma separated ndoes>
+PORT=<port to expose>
+LOG_LEVEL=<log level>
+JWT_SECRET=<jwt secret>

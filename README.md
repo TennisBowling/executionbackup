@@ -33,4 +33,6 @@ Truth Table for responses to CL when EL's are different:
 * Results of SYNCING are checked to verify if payload.block_hash is equal to keccak256(rlp(block_header)) to not get inconsistent block hashes in a supermajority  
 * Rows 3, 5, 6 are determined by the fcu-invalid-threshold parameter that determins what percentage of EL's are needed to be considered a majority and be the result
 
+# Execution API backup Dockerized
 
+You can run a docker-compose enabled version of the tool by making use of the dockerized folder
