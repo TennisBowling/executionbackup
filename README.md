@@ -3,12 +3,12 @@ A Ethereum 2.0 multiplexer enabling execution node failover and multiplexing
 
 ## Installing
 EB has provided releases for Linux, Windows, and MacOS.
-You can download the latest release [here](https://github.com/tennisbowlin/executionbackup-rust/releases/latest).
+You can download the latest release [here](https://github.com/tennisbowlin/executionbackup/releases/latest).
 
 You can also build from source using the following commands:
 ```bash
-git clone https://github.com/tennisbowling/executionbackup-rust.git
-cd executionbackup-rust
+git clone https://github.com/tennisbowling/executionbackup.git
+cd executionbackup
 make build
 ```
 And replacing `make build` with `cargo build --profile highperf --target-dir bin` for windows.
@@ -32,5 +32,4 @@ Truth Table for responses to CL when EL's are different:
 
 * Results of SYNCING are checked to verify if payload.block_hash is equal to keccak256(rlp(block_header)) to not get inconsistent block hashes in a supermajority  
 * Rows 3, 5, 6 are determined by the fcu-invalid-threshold parameter that determins what percentage of EL's are needed to be considered a majority and be the result
-
 
