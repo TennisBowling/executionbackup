@@ -4,6 +4,7 @@ use axum::{
     response::IntoResponse,
     Extension, Router, extract::DefaultBodyLimit,
 };
+use ethereum_types::U256;
 use futures::{self};
 use jsonwebtoken::{self, EncodingKey};
 use reqwest::{self, header};
@@ -19,6 +20,7 @@ use types::{ExecutionPayload};
 
 
 
+const VERSION: &str = "1.0.6";
 const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -182,6 +184,33 @@ impl Node {
             .header("Authorization", jwt_token)
             .body(data)
             .timeout(Duration::from_millis(1500))
+            .send()
+            .await;
+
+        let resp = match resp {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::error!("Error while sending request to node {}: {}", self.url, e);
+                return Err(e);
+            }
+        };
+
+        let status = resp.status().as_u16();
+        let resp_body = resp.text().await?;
+        Ok((resp_body, status))
+    }
+
+    async fn do_request_no_timeout(
+        &self,
+        data: String,
+        jwt_token: String,
+    ) -> Result<(String, u16), reqwest::Error> {
+        let resp = self
+            .client
+            .post(&self.url)
+            .header("Content-Type", "application/json")
+            .header("Authorization", jwt_token)
+            .body(data)
             .send()
             .await;
 
@@ -458,7 +487,8 @@ impl NodeRouter {
             let respjson = respjson.unwrap();
 
             if respjson["result"]["payloadStatus"]["status"] == "INVALID" {
-                // at least one node is VALID, so return SYNCING
+                // at least one node is INVALID, so return SYNCING
+                tracing::warn!("At least one node is INVALID, returning SYNCING.");
                 let req = serde_json::from_str::<serde_json::Value>(&req).unwrap();
                 return make_syncing_str(id, &req["params"][0], &req["method"].to_string());
             }
@@ -471,7 +501,7 @@ impl NodeRouter {
             let syncing_nodes = syncing_nodes.read().await;
             tracing::debug!("sending fcU to {} syncing nodes", syncing_nodes.len());
             for node in syncing_nodes.iter() {
-                if let Err(e) = node.do_request(req.clone(), jwt_token.clone()).await {
+                if let Err(e) = node.do_request_no_timeout(req.clone(), jwt_token.clone()).await {  // a lot of these syncing nodes are slow so we dont add a timeout
                     tracing::error!("error sending fcU to syncing node: {}", e);
                 }
             }
@@ -486,7 +516,7 @@ impl NodeRouter {
         j: &serde_json::Value,
         jwt_token: String,
     ) -> (String, u16) {
-        if j["method"] == "engine_getPayloadV1" || j["method"] == "engine_getPayloadV2"
+        if j["method"] == "engine_getPayloadV1"
         // getPayloadV1 is for getting a block to be proposed, so no use in getting from multiple nodes
         {
             let node = self.get_execution_node().await;
@@ -503,7 +533,43 @@ impl NodeRouter {
                     (e.to_string(), 500)
                 }
             }
-        } else if j["method"] == "engine_forkchoiceUpdatedV1" || j["method"] == "engine_newPayloadV1" || 
+        } 
+        else if j["method"] == "engine_getPayloadV2"
+        {
+            // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
+            // so we should send this to all the nodes and then return the one with the highest blockValue
+            let mut resps: Vec<String> = Vec::new();
+            let alive_nodes = self.alive_nodes.read().await;
+            for node in alive_nodes.iter() {
+                let resp = node.do_request(data.to_string(), jwt_token.clone()).await;
+                match resp {
+                    Ok(resp) => {
+                        resps.push(resp.0);
+                    }
+                    Err(e) => {
+                        tracing::error!("engine_getPayloadV2 error: {}", e);
+                    }
+                }
+            }
+            mem::drop(alive_nodes);
+            let mut blocks: HashMap<U256, String> = HashMap::new();
+
+            for resp in resps {
+                let j = serde_json::from_str::<serde_json::Value>(&resp).unwrap();
+                
+                let block_value: U256 = u64::from_str_radix(&j["result"]["blockValue"].as_str().unwrap()[2..], 16).unwrap().into();
+                blocks.insert(block_value, resp);
+            }
+
+            let max_block = blocks.iter().max_by_key(|(k, _v)| *k).unwrap().1;
+            
+            tracing::info!("all blocks yields {:?}", blocks.keys());
+
+            (max_block.to_string(), 200)
+        }
+        
+        
+        else if j["method"] == "engine_forkchoiceUpdatedV1" || j["method"] == "engine_newPayloadV1" || 
         j["method"] == "engine_forkchoiceUpdatedV2" || j["method"] == "engine_newPayloadV2" {
             tracing::debug!("Sending {} to alive nodes", j["method"]);
             let mut resps: Vec<String> = Vec::new();
@@ -516,7 +582,6 @@ impl NodeRouter {
                     }
                     Err(e) => {
                         tracing::error!("{} error: {}", j["method"], e);
-                        //resps.push(e.to_string());
                     }
                 }
             }
@@ -545,7 +610,7 @@ impl NodeRouter {
                 let alive_nodes = alive_nodes.read().await;
                 for node in alive_nodes.iter() {
                     if node.url != primary_node.url {
-                        match node.do_request(data.clone(), jwt_token.clone()).await
+                        match node.do_request_no_timeout(data.clone(), jwt_token.clone()).await
                         {
                             Ok(_) => {}
                             Err(e) => {
@@ -569,18 +634,15 @@ impl NodeRouter {
         // simply send request to primary node
         let primary_node = self.get_execution_node().await;
         if primary_node.is_none() {
-            return (String::from("No nodes available"), 500);
+            return (String::from("No nodes available for normal request"), 500);
         }
         let primary_node = primary_node.unwrap();
         let resp = primary_node.do_request(data.to_string(), jwt_token).await;
-        tracing::debug!("Sent to primary node: {}", primary_node.url);
         match resp {
             Ok(resp) => {
-                tracing::trace!("Response from primary node: {}", resp.0);
                 (resp.0, resp.1)
             }
             Err(e) => {
-                tracing::warn!("Error from primary node: {}", e);
                 (e.to_string(), 500)
             }
         }
@@ -628,12 +690,13 @@ async fn route_all(
 #[tokio::main]
 async fn main() {
     let matches = clap::App::new("executionbackup")
-        .version("1.0.2")
+        .version(VERSION)
         .author("TennisBowling <tennisbowling@tennisbowling.com>")
         .setting(clap::AppSettings::ColoredHelp)
         .about("A Ethereum 2.0 multiplexer enabling execution node failover post-merge")
-        .long_version(
-            "executionbackup version 1.0.5 by TennisBowling <tennisbowling@tennisbowling.com>",
+        .long_version(&*format!(
+            "executionbackup version {} by TennisBowling <tennisbowling@tennisbowling.com>",
+            VERSION)
         )
         .arg(
             clap::Arg::with_name("port")
@@ -711,7 +774,7 @@ async fn main() {
     // set log level with tracing subscriber
     let subscriber = tracing_subscriber::fmt().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-    tracing::info!("Starting executionbackup version 1.0.2");
+    tracing::info!("Starting executionbackup version {VERSION}");
 
     tracing::info!("fcu invalid threshold set to: {}", fcu_invalid_threshold);
     let fcu_invalid_threshold = fcu_invalid_threshold
