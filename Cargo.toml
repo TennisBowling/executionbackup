@@ -28,6 +28,7 @@ hash256-std-hasher = "0.15.2"
 metastruct = "0.1.0"
 ethereum-types = "0.14.1"
 types = { path = "types" }
+arcstr = "1.1.5"
 
 
 [profile.highperf]
