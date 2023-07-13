@@ -488,7 +488,7 @@ impl NodeRouter {
             }
             let respjson: Result<serde_json::Value, serde_json::Error> = serde_json::from_str(resp);
 
-            if let Err(e) = respjson {
+            if let Err(_) = respjson {
                 // resp is not valid json, so ignore
                 continue;
             }
