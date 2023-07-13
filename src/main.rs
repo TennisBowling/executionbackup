@@ -1,4 +1,3 @@
-use crate::verify_hash::verify_payload_block_hash;
 use arcstr::ArcStr;
 use axum::{
     self,
@@ -18,6 +17,7 @@ use std::{mem, net::SocketAddr};
 use tokio::{sync::RwLock, time::Duration};
 mod verify_hash;
 use types::ExecutionPayload;
+use verify_hash::verify_payload_block_hash;
 
 const VERSION: &str = "1.0.6";
 const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
@@ -26,10 +26,6 @@ const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS25
 pub struct Claims {
     /// issued-at claim. Represented as seconds passed since UNIX_EPOCH.
     iat: i64,
-    /// Optional unique identifier for the CL node.
-    id: String,
-    /// Optional client version for the CL node.
-    clv: String,
 }
 
 struct CheckAliveResult {
@@ -37,16 +33,18 @@ struct CheckAliveResult {
     resp_time: u128,
 }
 
-fn make_jwt(jwt_key: &jsonwebtoken::EncodingKey) -> Result<String, jsonwebtoken::errors::Error> {
-    let timestamp = chrono::Utc::now().timestamp();
+pub fn make_jwt(
+    jwt_key: &jsonwebtoken::EncodingKey,
+) -> Result<String, jsonwebtoken::errors::Error> {
     let claim_inst = Claims {
-        iat: timestamp,
-        id: "1".to_owned(),
-        clv: "1".to_owned(),
+        iat: chrono::Utc::now().timestamp(),
     };
-
-    let header = jsonwebtoken::Header::new(DEFAULT_ALGORITHM);
-    let token = jsonwebtoken::encode(&header, &claim_inst, jwt_key).unwrap();
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(DEFAULT_ALGORITHM),
+        &claim_inst,
+        jwt_key,
+    )
+    .unwrap();
     Ok(token)
 }
 
@@ -372,21 +370,34 @@ impl NodeRouter {
             drop(primary_node);
             let mut primary_node = self.primary_node.write().await;
             *primary_node = Some(Arc::new(alive_nodes[0].clone()));
+            drop(primary_node);
         }
 
         let primary_node = self.primary_node.read().await;
         if primary_node.as_ref().unwrap().status == 0 {
-            // primary node is offline, set it to the next node in the alive_nodes vector
-            let mut primary_node_index = 0;
-            for (i, node) in alive_nodes.iter().enumerate() {
-                if node.url == primary_node.as_ref().unwrap().url {
-                    primary_node_index = i;
-                    break;
-                }
-            }
+            // primary node is offline, set primary node to the next node in the alive_nodes vector
+            let primary_node_url = primary_node.as_ref().unwrap().url.clone();
+            let primary_node_index = alive_nodes
+                .iter()
+                .position(|x| x.url == primary_node_url)
+                .unwrap();
 
             drop(primary_node);
             let mut primary_node = self.primary_node.write().await;
+
+            // if there are no more nodes in the alive_nodes vector, set primary node to a node in the syncing nodes vector
+            if alive_nodes.is_empty() {
+                let alive_but_syncing_nodes = self.alive_but_syncing_nodes.read().await;
+                if alive_but_syncing_nodes.is_empty() {
+                    // no nodes available
+                    *primary_node = None;
+                    return None;
+                } else {
+                    *primary_node = Some(Arc::new(alive_but_syncing_nodes[0].clone()));
+                    return Some(primary_node.as_ref().unwrap().clone());
+                }
+            }
+
             if primary_node_index == alive_nodes.len() - 1 {
                 // primary node is the last node in the alive_nodes vector, set it to the first node in the vector
                 *primary_node = Some(Arc::new(alive_nodes[0].clone()));
@@ -394,6 +405,7 @@ impl NodeRouter {
                 // primary node is not the last node in the alive_nodes vector, set it to the next node in the vector
                 *primary_node = Some(Arc::new(alive_nodes[primary_node_index + 1].clone()));
             }
+            drop(primary_node);
         }
 
         let primary_node = self.primary_node.read().await; // we must lock here since we might've dropped it above
@@ -477,13 +489,8 @@ impl NodeRouter {
             let respjson: Result<serde_json::Value, serde_json::Error> = serde_json::from_str(resp);
 
             if let Err(e) = respjson {
-                // majority is not valid json, so return SYNCING and inform the user
-                tracing::error!(
-                    "Majority is not valid json, returning SYNCING. Error: {}",
-                    e
-                );
-                let req = serde_json::from_str::<serde_json::Value>(&req).unwrap();
-                return make_syncing_str(id, &req["params"][0], &req["method"].to_string());
+                // resp is not valid json, so ignore
+                continue;
             }
 
             let respjson = respjson.unwrap();
