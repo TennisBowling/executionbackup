@@ -12,7 +12,7 @@ use jsonwebtoken::{self, EncodingKey};
 use reqwest::{self, header};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};f
 use std::{mem, net::SocketAddr};
 use tokio::{sync::RwLock, time::Duration};
 mod verify_hash;
@@ -539,7 +539,7 @@ impl NodeRouter {
                 return (String::from("No nodes available"), 500);
             }
             let node = node.unwrap();
-            let resp = node.do_request(data, jwt_token).await;
+            let resp = node.do_request_no_timeout(data, jwt_token).await;
             tracing::debug!("engine_getPayloadV1 sent to node: {}", node.url);
             match resp {
                 Ok(resp) => (resp.0, resp.1),
@@ -554,7 +554,7 @@ impl NodeRouter {
             let mut resps: Vec<ArcStr> = Vec::new();
             let alive_nodes = self.alive_nodes.read().await;
             for node in alive_nodes.iter() {
-                let resp = node.do_request(data, jwt_token).await;
+                let resp = node.do_request_no_timeout(data, jwt_token).await;
                 match resp {
                     Ok(resp) => {
                         resps.push(resp.0.into());
@@ -591,7 +591,7 @@ impl NodeRouter {
             let mut resps: Vec<String> = Vec::new();
             let alive_nodes = self.alive_nodes.read().await;
             for node in alive_nodes.iter() {
-                let resp = node.do_request(data, jwt_token).await;
+                let resp = node.do_request_no_timeout(data, jwt_token).await;
                 match resp {
                     Ok(resp) => {
                         resps.push(resp.0);
@@ -619,7 +619,7 @@ impl NodeRouter {
                 return (String::from("No nodes available"), 500);
             }
             let primary_node = primary_node.unwrap();
-            let resp = primary_node.do_request(data, jwt_token).await;
+            let resp = primary_node.do_request_no_timeout(data, jwt_token).await;
             tracing::debug!("Sent to primary node: {}", primary_node.url);
 
             let alive_nodes = self.alive_nodes.clone();
@@ -655,7 +655,7 @@ impl NodeRouter {
             return (String::from("No nodes available for normal request"), 500);
         }
         let primary_node = primary_node.unwrap();
-        let resp = primary_node.do_request(data, jwt_token).await;
+        let resp = primary_node.do_request_no_timeout(data, jwt_token).await;
         match resp {
             Ok(resp) => (resp.0, resp.1),
             Err(e) => (e.to_string(), 500),
