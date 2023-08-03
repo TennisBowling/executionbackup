@@ -13,7 +13,7 @@ make build
 ```
 And replacing `make build` with `cargo build --profile highperf --target-dir bin` for windows.
 
-## Usage
+## Sample Usage
 ```bash
 executionbackup -n http://node1:port,http://node2:port -j /path/to/jwt_secret
 ```
