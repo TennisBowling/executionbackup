@@ -672,7 +672,7 @@ async fn route_all(
         let jwt_token = headers.get("Authorization");
         if jwt_token.is_none() {
             let (resp, status) = router
-                .do_route_normal(&body, &format!(“Bearer {}”, make_jwt(&router.jwt_key).unwrap()))
+                .do_route_normal(&body, &format!("Bearer {}", make_jwt(&router.jwt_key).unwrap()))
                 .await;
 
             return (
