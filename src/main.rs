@@ -177,15 +177,44 @@ impl Node {
     #[inline(always)]
     async fn do_request(
         &self,
-        data: &str,
-        jwt_token: &str,
+        data: String,
+        jwt_token: String,
     ) -> Result<(String, u16), reqwest::Error> {
         let resp = self
             .client
             .post(&self.url)
             .header("Content-Type", "application/json")
             .header("Authorization", jwt_token)
-            .body(data.to_string())
+            .body(data)
+            .timeout(Duration::from_millis(2500))
+            .send()
+            .await;
+
+        let resp = match resp {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::error!("Error while sending request to node {}: {}", self.url, e);
+                return Err(e);
+            }
+        };
+
+        let status = resp.status().as_u16();
+        let resp_body = resp.text().await?;
+        Ok((resp_body, status))
+    }
+
+    #[inline(always)]
+    async fn do_request_no_timeout(
+        &self,
+        data: String,
+        jwt_token: String,
+    ) -> Result<(String, u16), reqwest::Error> {
+        let resp = self
+            .client
+            .post(&self.url)
+            .header("Content-Type", "application/json")
+            .header("Authorization", jwt_token)
+            .body(data)
             .send()
             .await;
 
@@ -415,7 +444,7 @@ impl NodeRouter {
         }
     }
 
-    async fn fcu_logic(&self, resps: &Vec<&str>, req: &str, jwt_token: &str, id: &u64) -> String {
+    async fn fcu_logic(&self, resps: &Vec<&str>, req: String, jwt_token: String, id: &u64) -> String {
         if resps.is_empty() {
             // no responses, so return SYNCING
             tracing::error!("No responses, returning SYNCING.");
@@ -483,7 +512,7 @@ impl NodeRouter {
             let syncing_nodes = syncing_nodes.read().await;
             tracing::debug!("sending fcU to {} syncing nodes", syncing_nodes.len());
             for node in syncing_nodes.iter() {
-                if let Err(e) = node.do_request(&req_clone, &jwt_token_clone).await {
+                if let Err(e) = node.do_request_no_timeout(req_clone.clone(), jwt_token_clone.clone()).await {
                     // a lot of these syncing nodes are slow so we dont add a timeout
                     tracing::error!("error sending fcU to syncing node: {}", e);
                 }
@@ -495,9 +524,9 @@ impl NodeRouter {
 
     async fn do_engine_route(
         &self,
-        data: &str,
+        data: String,
         j: &serde_json::Value,
-        jwt_token: &str,
+        jwt_token: String,
     ) -> (String, u16) {
         if j["method"] == "engine_getPayloadV1"
         // getPayloadV1 is for getting a block to be proposed, so no use in getting from multiple nodes
@@ -507,7 +536,7 @@ impl NodeRouter {
                 return (String::from("No nodes available"), 500);
             }
             let node = node.unwrap();
-            let resp = node.do_request(data, jwt_token).await;
+            let resp = node.do_request_no_timeout(data, jwt_token).await;
             tracing::debug!("engine_getPayloadV1 sent to node: {}", node.url);
             match resp {
                 Ok(resp) => (resp.0, resp.1),
@@ -522,7 +551,7 @@ impl NodeRouter {
             let mut resps: Vec<ArcStr> = Vec::new();
             let alive_nodes = self.alive_nodes.read().await;
             for node in alive_nodes.iter() {
-                let resp = node.do_request(data, jwt_token).await;
+                let resp = node.do_request_no_timeout(data.clone(), jwt_token.clone()).await;
                 match resp {
                     Ok(resp) => {
                         resps.push(resp.0.into());
@@ -559,7 +588,7 @@ impl NodeRouter {
             let mut resps: Vec<String> = Vec::new();
             let alive_nodes = self.alive_nodes.read().await;
             for node in alive_nodes.iter() {
-                let resp = node.do_request(data, jwt_token).await;
+                let resp = node.do_request(data.clone(), jwt_token.clone()).await;
                 match resp {
                     Ok(resp) => {
                         resps.push(resp.0);
@@ -587,7 +616,9 @@ impl NodeRouter {
                 return (String::from("No nodes available"), 500);
             }
             let primary_node = primary_node.unwrap();
-            let resp = primary_node.do_request(data, jwt_token).await;
+            let resp = primary_node
+                .do_request_no_timeout(data.clone(), jwt_token.clone())
+                .await;
             tracing::debug!("Sent to primary node: {}", primary_node.url);
 
             let alive_nodes = self.alive_nodes.clone();
@@ -597,7 +628,7 @@ impl NodeRouter {
                 let alive_nodes = alive_nodes.read().await;
                 for node in alive_nodes.iter() {
                     if node.url != primary_node.url {
-                        match node.do_request(&data, &jwt_token).await {
+                        match node.do_request_no_timeout(data.clone(), jwt_token.clone()).await {
                             Ok(_) => {}
                             Err(e) => {
                                 tracing::error!("error sending fcU to syncing node: {}", e);
@@ -616,7 +647,7 @@ impl NodeRouter {
         }
     }
 
-    async fn do_route_normal(&self, data: &str, jwt_token: &str) -> (String, u16) {
+    async fn do_route_normal(&self, data: String, jwt_token: String) -> (String, u16) {
         // simply send request to primary node
         let primary_node = self.get_execution_node().await;
         if primary_node.is_none() {
@@ -624,8 +655,7 @@ impl NodeRouter {
         }
 
         let primary_node = primary_node.unwrap();
-        let resp = primary_node.do_request(data, jwt_token).await;
-
+        let resp = primary_node.do_request_no_timeout(data, jwt_token).await;
         match resp {
             Ok(resp) => (resp.0, resp.1),
             Err(e) => (e.to_string(), 500),
@@ -659,7 +689,7 @@ async fn route_all(
         tracing::trace!("Routing to engine route");
         let jwt_token = headers.get("Authorization").unwrap().to_str().unwrap();
 
-        let (resp, status) = router.do_engine_route(&body, &j, &jwt_token).await;
+        let (resp, status) = router.do_engine_route(body, &j, jwt_token.to_string()).await;
 
         return (
             StatusCode::from_u16(status).unwrap(),
@@ -672,7 +702,7 @@ async fn route_all(
         let jwt_token = headers.get("Authorization");
         if jwt_token.is_none() {
             let (resp, status) = router
-                .do_route_normal(&body, &format!("Bearer {}", make_jwt(&router.jwt_key).unwrap()))
+                .do_route_normal(body, format!("Bearer {}", make_jwt(&router.jwt_key).unwrap()))
                 .await;
 
             return (
@@ -684,8 +714,8 @@ async fn route_all(
 
         let (resp, status) = router
             .do_route_normal(
-                &body,
-                headers.get("Authorization").unwrap().to_str().unwrap(),
+                body,
+                headers.get("Authorization").unwrap().to_str().unwrap().to_string(),
             )
             .await;
 
