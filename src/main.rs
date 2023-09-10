@@ -19,7 +19,7 @@ mod verify_hash;
 use types::ExecutionPayload;
 use verify_hash::verify_payload_block_hash;
 
-const VERSION: &str = "1.1.0";
+const VERSION: &str = "1.1.1";
 const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -881,7 +881,7 @@ async fn main() {
     let port = matches.value_of("port").unwrap();
     let nodes = matches.value_of("nodes").unwrap();
     let jwt_secret = matches.value_of("jwt-secret").unwrap();
-    let fcu_invalid_threshold = matches.value_of("fcu-invalid-threshold").unwrap();
+    let fcu_majority = matches.value_of("fcu-majority").unwrap();
     let listen_addr = matches.value_of("listen-addr").unwrap();
     let log_level = matches.value_of("log-level").unwrap();
 
@@ -898,8 +898,8 @@ async fn main() {
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     tracing::info!("Starting executionbackup version {VERSION}");
 
-    tracing::info!("fcu invalid threshold set to: {}", fcu_invalid_threshold);
-    let fcu_invalid_threshold = fcu_invalid_threshold
+    tracing::info!("fcu invalid threshold set to: {}", fcu_majority);
+    let fcu_majority = fcu_majority
         .parse::<f32>()
         .expect("Invalid fcu threshold");
 
@@ -923,7 +923,7 @@ async fn main() {
 
     let router = Arc::new(NodeRouter::new(
         jwt_secret,
-        fcu_invalid_threshold,
+        fcu_majority,
         nodesinstances,
     ));
 
