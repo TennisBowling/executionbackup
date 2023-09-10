@@ -19,7 +19,7 @@ mod verify_hash;
 use types::ExecutionPayload;
 use verify_hash::verify_payload_block_hash;
 
-const VERSION: &str = "1.0.6";
+const VERSION: &str = "1.1.0";
 const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
