@@ -29,6 +29,7 @@ metastruct = "0.1.0"
 ethereum-types = "0.14.1"
 types = { path = "types" }
 arcstr = "1.1.5"
+lazy_static = "1.4.0"
 
 
 [profile.highperf]

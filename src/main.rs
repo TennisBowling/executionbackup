@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate lazy_static;
 use arcstr::ArcStr;
 use axum::{
     self,
@@ -21,6 +23,13 @@ use verify_hash::verify_payload_block_hash;
 
 const VERSION: &str = "1.1.1";
 const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
+
+lazy_static! {
+    static ref TIMEOUT: Duration = {
+        let dur = Duration::from_millis(7500);
+        dur
+    };
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Claims {
@@ -185,7 +194,7 @@ impl Node {
             .header("Content-Type", "application/json")
             .header("Authorization", jwt_token)
             .body(data)
-            .timeout(Duration::from_millis(2500))
+            .timeout(*TIMEOUT)
             .send()
             .await;
 
@@ -533,7 +542,15 @@ impl NodeRouter {
         j: &serde_json::Value,
         jwt_token: String,
     ) -> (String, u16) {
-        if j["method"] == "engine_getPayloadV1"
+        let meth = match j["method"].as_str() {
+            Some(meth) => meth,
+            None => {
+                tracing::error!("Request has no method field");
+                return (String::from("Request has no method field"), 400);
+            }
+        };
+
+        if meth == "engine_getPayloadV1"
         // getPayloadV1 is for getting a block to be proposed, so no use in getting from multiple nodes
         {
             let node = match self.get_execution_node().await {
@@ -543,7 +560,7 @@ impl NodeRouter {
                 Some(node) => node,
             };
 
-            let resp = node.do_request_no_timeout(data, jwt_token).await;
+            let resp = node.do_request_no_timeout(data, jwt_token).await;   // no timeout since the CL will just time us out themselves
             tracing::debug!("engine_getPayloadV1 sent to node: {}", node.url);
             match resp {
                 Ok(resp) => (resp.0, resp.1),
@@ -552,13 +569,13 @@ impl NodeRouter {
                     (e.to_string(), 500)
                 }
             }
-        } else if j["method"] == "engine_getPayloadV2" {
+        } else if meth == "engine_getPayloadV2" {
             // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
             // so we should send this to all the nodes and then return the one with the highest blockValue
             let mut resps: Vec<ArcStr> = Vec::new();
             let alive_nodes = self.alive_nodes.read().await;
             for node in alive_nodes.iter() {
-                let resp = node.do_request_no_timeout(data.clone(), jwt_token.clone()).await;
+                let resp = node.do_request_no_timeout(data.clone(), jwt_token.clone()).await;   // no timeout since the CL will just time us out themselves
                 match resp {
                     Ok(resp) => {
                         resps.push(resp.0.into());
@@ -620,12 +637,12 @@ impl NodeRouter {
 
 
 
-        } else if j["method"] == "engine_forkchoiceUpdatedV1"
-            || j["method"] == "engine_newPayloadV1"
-            || j["method"] == "engine_forkchoiceUpdatedV2"
-            || j["method"] == "engine_newPayloadV2"
+        } else if meth == "engine_forkchoiceUpdatedV1"
+            || meth == "engine_newPayloadV1"
+            || meth == "engine_forkchoiceUpdatedV2"
+            || meth == "engine_newPayloadV2"
         {
-            tracing::debug!("Sending {} to alive nodes", j["method"]);
+            tracing::debug!("Sending {} to alive nodes", meth);
             let mut resps: Vec<String> = Vec::new();
             let alive_nodes = self.alive_nodes.read().await;
             for node in alive_nodes.iter() {
@@ -635,7 +652,7 @@ impl NodeRouter {
                         resps.push(resp.0);
                     }
                     Err(e) => {
-                        tracing::error!("{} error: {}", j["method"], e);
+                        tracing::error!("{} error: {}", meth, e);
                     }
                 }
             }
@@ -643,7 +660,7 @@ impl NodeRouter {
             let id = match j["id"].as_u64() {
                 Some(id) => id,
                 None => {
-                    tracing::warn!("{} request has no id field", j["method"]);
+                    tracing::warn!("{} request has no id field", meth);
                     return (String::from("No id field"), 500);
                 }
             };
