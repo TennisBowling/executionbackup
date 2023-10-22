@@ -1,8 +1,69 @@
-use std::error::Error;
 use ethereum_types::{Address, H256, H64, U256};
 use metastruct::metastruct;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::error::Error;
 pub mod keccak;
+use array_bytes::hex_n_into;
+use array_bytes::TryFromHex;
+
+fn value_to_hash(value: &serde_json::Value) -> Result<H256, Box<dyn Error>> {
+    let hex = value.as_str().ok_or("value is not a string")?;
+    let hash: H256 = hex_n_into::<_, H256, 32>(hex)
+        .map_err(|e| format!("Value is not a valid hex string: {:?}", e))?;
+    Ok(hash)
+}
+
+fn value_to_address(value: &serde_json::Value) -> Result<Address, Box<dyn Error>> {
+    let hex = value.as_str().ok_or("value is not a string")?;
+    let address: Address = hex_n_into::<_, Address, 20>(hex)
+        .map_err(|e| format!("Value is not a valid hex string: {:?}", e))?;
+    Ok(address)
+}
+
+fn value_to_u256(value: &serde_json::Value) -> Result<U256, Box<dyn Error>> {
+    let hex = value.as_str().ok_or("value is not a string")?;
+    let mut padded_hex = hex.to_string();
+
+    if padded_hex.starts_with("0x") {
+        padded_hex = padded_hex[2..].to_string();
+    }
+
+    // pad the string with leading zeros to make it 64 characters
+    let padding_len = 64 - padded_hex.len();
+    let padding = "0".repeat(padding_len);
+    padded_hex = padding + &padded_hex;
+
+    let num: U256 = array_bytes::hex_n_into::<_, U256, 32>(padded_hex)
+        .map_err(|e| format!("Value is not a valid hex string: {:?}", e))?;
+    Ok(num)
+}
+
+fn value_to_u64(value: &serde_json::Value) -> Result<u64, Box<dyn Error>> {
+    let hex = value.as_str().ok_or("value is not a string")?;
+    let num: u64 =
+        u64::try_from_hex(hex).map_err(|e| format!("Value is not a valid hex string: {:?}", e))?;
+    Ok(num)
+}
+
+fn value_to_withdrawls(value: &serde_json::Value) -> Result<Vec<Withdrawal>, Box<dyn Error>> {
+    let withdrawals = value.as_array().ok_or("value is not an array")?;
+    let withdrawals = withdrawals
+        .iter()
+        .map(|withdrawal| {
+            let index = value_to_u64(&withdrawal["index"])?;
+            let validator_index = value_to_u64(&withdrawal["validatorIndex"])?;
+            let address = value_to_address(&withdrawal["address"])?;
+            let amount = value_to_u64(&withdrawal["amount"])?;
+            Ok(Withdrawal {
+                index,
+                validator_index,
+                address,
+                amount,
+            })
+        })
+        .collect::<Result<Vec<Withdrawal>, Box<dyn Error>>>()?;
+    Ok(withdrawals)
+}
 
 /*
 This structure contains the result of processing a payload. The fields are encoded as follows:
@@ -25,7 +86,7 @@ pub enum PayloadStatusV1Status {
     #[serde(rename = "INVALID_BLOCK_HASH")]
     InvalidBlockHash,
 }
-  
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PayloadStatusV1 {
@@ -50,16 +111,14 @@ impl PayloadStatusV1 {
             validation_error: None,
         }
     }
-
 }
 
 pub struct Withdrawal {
     pub index: u64,
     pub validator_index: u64,
     pub address: Address,
-    pub amount: u64
+    pub amount: u64,
 }
-
 
 pub struct ExecutionPayload {
     pub parent_hash: H256,
@@ -81,26 +140,30 @@ pub struct ExecutionPayload {
 
 impl ExecutionPayload {
     pub fn from_json(payload: &serde_json::Value) -> Result<Self, Box<dyn Error>> {
-        let parent_hash = H256::from_slice(&hex::decode(payload["parentHash"].as_str().unwrap()[2..].to_string())?);
-        let fee_recipient = Address::from_slice(&hex::decode(payload["feeRecipient"].as_str().unwrap()[2..].to_string())?);
-        let state_root = H256::from_slice(&hex::decode(payload["stateRoot"].as_str().unwrap()[2..].to_string())?);
-        let receipts_root = H256::from_slice(&hex::decode(payload["receiptsRoot"].as_str().unwrap()[2..].to_string())?);
+        let parent_hash = value_to_hash(&payload["parentHash"])?;
+        let fee_recipient = value_to_address(&payload["feeRecipient"])?.into();
+        let state_root = value_to_hash(&payload["stateRoot"])?;
+        let receipts_root = value_to_hash(&payload["receiptsRoot"])?;
         let logs_bloom = hex::decode(payload["logsBloom"].as_str().unwrap()[2..].to_string())?;
-        let prev_randao = H256::from_slice(&hex::decode(payload["prevRandao"].as_str().unwrap()[2..].to_string())?);
-        let block_number: u64 = u64::from_str_radix(&payload["blockNumber"].as_str().unwrap()[2..], 16)?;
-        let gas_limit: u64 = u64::from_str_radix(&payload["gasLimit"].as_str().unwrap()[2..], 16)?;
-        let gas_used = u64::from_str_radix(&payload["gasUsed"].as_str().unwrap()[2..], 16)?;
-        let timestamp = u64::from_str_radix(&payload["timestamp"].as_str().unwrap()[2..], 16)?;
+        let prev_randao = value_to_hash(&payload["prevRandao"])?;
+        let block_number = value_to_u64(&payload["blockNumber"])?;
+        let gas_limit = value_to_u64(&payload["gasLimit"])?;
+        let gas_used = value_to_u64(&payload["gasUsed"])?;
+        let timestamp = value_to_u64(&payload["timestamp"])?;
         let extra_data = hex::decode(payload["extraData"].as_str().unwrap()[2..].to_string())?;
-        let base_fee_per_gas = U256::from_str_radix(&payload["baseFeePerGas"].as_str().unwrap()[2..], 16)?;
-        let block_hash = H256::from_slice(&hex::decode(payload["blockHash"].as_str().unwrap()[2..].to_string())?);
-        let transactions = payload["transactions"].as_array().unwrap().iter().map(|txn| txn.as_str().unwrap().to_string()).collect::<Vec<String>>().iter().map(|txn| txn[2..].to_string()).map(|txn_str| hex::decode(txn_str).unwrap()).collect::<Vec<Vec<u8>>>();
-        let withdrawals = payload["withdrawals"].as_array().unwrap().iter().map(|withdrawal| Withdrawal {
-            index: withdrawal["index"].as_u64().unwrap(),
-            validator_index: withdrawal["validatorIndex"].as_u64().unwrap(),
-            address: Address::from_slice(&hex::decode(withdrawal["address"].as_str().unwrap()[2..].to_string()).unwrap()),
-            amount: withdrawal["amount"].as_u64().unwrap(),
-        }).collect::<Vec<Withdrawal>>();
+        let base_fee_per_gas = value_to_u256(&payload["baseFeePerGas"])?;
+        let block_hash = value_to_hash(&payload["blockHash"])?;
+        let transactions = payload["transactions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|txn| txn.as_str().unwrap().to_string())
+            .collect::<Vec<String>>()
+            .iter()
+            .map(|txn| txn[2..].to_string())
+            .map(|txn_str| hex::decode(txn_str).unwrap())
+            .collect::<Vec<Vec<u8>>>();
+        let withdrawals = value_to_withdrawls(&payload["withdrawals"])?;
 
         Ok(ExecutionPayload {
             parent_hash,
@@ -121,8 +184,6 @@ impl ExecutionPayload {
         })
     }
 }
-
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[metastruct(mappings(map_execution_block_header_fields()))]

@@ -36,3 +36,7 @@ Truth Table for responses to CL when EL's are different:
 # Execution API backup Dockerized
 
 You can run a docker-compose enabled version of the tool by making use of the dockerized folder
+
+# Testing
+```
+cargo test --all```
