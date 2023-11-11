@@ -42,7 +42,7 @@ fn make_jwt(jwt_key: &jsonwebtoken::EncodingKey) -> Result<String, jsonwebtoken:
     )
 }
 
-fn make_response(id: &u64, result: PayloadStatusV1) -> String {
+fn make_response(id: &u64, result: serde_json::Value) -> String {
     json!({"jsonrpc":"2.0","id":id,"result":result}).to_string()
 }
 
@@ -733,18 +733,14 @@ impl NodeRouter {
                                 return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
                             },
                             FcuLogicError::OneNodeIsInvalid => {
-                                tracing::error!("One node is invalid for {:?}, returning INVALID", request.method);
-                                return (make_response(&request.id, PayloadStatusV1 {
-                                    status: PayloadStatusV1Status::Invalid,
-                                    latest_valid_hash: None,
-                                    validation_error: None,
-                                }), 200);
+                                tracing::error!("One node is invalid for {:?}, returning SYNCING", request.method);
+                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
                             },
                         }
                     },
                 };
                 
-                (make_response(&request.id, resp), 200)
+                (make_response(&request.id, json!(resp)), 200)
             },
 
             EngineMethod::engine_forkchoiceUpdatedV1
@@ -802,18 +798,15 @@ impl NodeRouter {
                                 return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
                             },
                             FcuLogicError::OneNodeIsInvalid => {
-                                tracing::error!("One node is invalid for {:?}, returning INVALID", request.method);
-                                return (make_response(&request.id, PayloadStatusV1 {
-                                    status: PayloadStatusV1Status::Invalid,
-                                    latest_valid_hash: None,
-                                    validation_error: None,
-                                }), 200);
+                                tracing::error!("One node is invalid for {:?}, returning SYNCING", request.method);
+                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
                             },
                         }
                     },
                 };
                 
-                (make_response(&request.id, resp), 200)
+                // return null for payloadId which is next to the payloadStatus todo: make it actually use payloadid
+                (make_response(&request.id, json!(forkchoiceUpdatedResponse{ payloadStatus: resp, payloadId: None })), 200)
             }
 
 

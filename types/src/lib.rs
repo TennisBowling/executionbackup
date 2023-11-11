@@ -302,3 +302,9 @@ pub struct RpcRequest {
     pub id: u64,
     pub jsonrpc: String,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct forkchoiceUpdatedResponse {
+    pub payloadStatus: PayloadStatusV1,
+    pub payloadId: Option<H256>,
+}
