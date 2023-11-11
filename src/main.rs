@@ -12,13 +12,12 @@ use ethereum_types::U256;
 use futures::future::join_all;
 use jsonwebtoken::{self, EncodingKey};
 use reqwest::{self, header};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 use std::{mem, net::SocketAddr};
 use tokio::{sync::RwLock, time::Duration};
 mod verify_hash;
-use types::ExecutionPayload;
+use types::*;
 use verify_hash::verify_payload_block_hash;
 
 const VERSION: &str = "1.1.2";
@@ -31,25 +30,6 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-struct Claims {
-    /// issued-at claim. Represented as seconds passed since UNIX_EPOCH.
-    iat: i64,
-}
-
-#[derive(PartialEq, Clone, Copy)]
-enum SyncingStatus {
-    Synced,
-    Offline,
-    OnlineAndSyncing,
-    NodeNotInitialized,
-}
-
-#[derive(Clone)]
-struct NodeHealth {
-    status: SyncingStatus,
-    resp_time: u128,
-}
 
 fn make_jwt(jwt_key: &jsonwebtoken::EncodingKey) -> Result<String, jsonwebtoken::errors::Error> {
     let claim_inst = Claims {
@@ -62,33 +42,73 @@ fn make_jwt(jwt_key: &jsonwebtoken::EncodingKey) -> Result<String, jsonwebtoken:
     )
 }
 
-fn make_syncing_str(id: &u64, payload: &serde_json::Value, method: &str) -> String {
-    if method == "engine_newPayloadV1" {
-        tracing::debug!(
-            "Verifying execution payload blockhash {}.",
-            payload["blockHash"]
-        );
-        let execution_payload = match ExecutionPayload::from_json(&payload) {
-            Ok(execution_payload) => execution_payload,
-            Err(e) => {
-                tracing::error!("Error deserializing execution payload: {}", e);
+fn make_response(id: &u64, result: PayloadStatusV1) -> String {
+    json!({"jsonrpc":"2.0","id":id,"result":result}).to_string()
+}
+
+fn make_error(id: &u64, error: &str) -> String {
+    json!({"jsonrpc":"2.0","id":id,"error":error}).to_string()
+}
+
+fn parse_result(resp: &str) -> Result<serde_json::Value, ParseError> {
+    let j = match serde_json::from_str::<serde_json::Value>(resp) {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!("Error deserializing response: {}", e);
+            return Err(ParseError::InvalidJson);
+        }
+    };
+
+    match j.get("error") {
+        Some(error) => {
+            tracing::error!("Response has error field: {}", error);
+            return Err(ParseError::ElError);
+        }
+        None => {}
+    }
+
+    let result = match j.get("result") {
+        Some(result) => result,
+        None => {
+            tracing::error!("Response has no result field");
+            return Err(ParseError::MethodNotFound);
+        }
+    };
+    
+    Ok(result.clone())
+}
+
+fn make_syncing_str(id: &u64, payload: &serde_json::Value, method: &EngineMethod) -> String {
+    match method {
+        EngineMethod::engine_newPayloadV1 => {
+            tracing::debug!(
+                "Verifying execution payload blockhash {}.",
+                payload["blockHash"]
+            );
+            let execution_payload = match ExecutionPayload::from_json(&payload) {
+                Ok(execution_payload) => execution_payload,
+                Err(e) => {
+                    tracing::error!("Error deserializing execution payload: {}", e);
+                    return e.to_string();
+                }
+            };
+
+            if let Err(e) = verify_payload_block_hash(&execution_payload) {
+                tracing::error!("Error verifying execution payload blockhash: {}", e);
                 return e.to_string();
             }
-        };
 
-        if let Err(e) = verify_payload_block_hash(&execution_payload) {
-            tracing::error!("Error verifying execution payload blockhash: {}", e);
-            return e.to_string();
+            tracing::debug!(
+                "Execution payload blockhash {} verified. Returning SYNCING",
+                payload["blockHash"]
+            );
+            return json!({"jsonrpc":"2.0","id":id,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null}},"payloadId":null}).to_string()
+        },
+
+        _ => {
+            return json!({"jsonrpc":"2.0","id":id,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null}},"payloadId":null}).to_string()
         }
-
-        tracing::debug!(
-            "Execution payload blockhash {} verified. Returning SYNCING",
-            payload["blockHash"]
-        );
-        json!({"jsonrpc":"2.0","id":id,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null}},"payloadId":null}).to_string()
-    } else {
-        json!({"jsonrpc":"2.0","id":id,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null}},"payloadId":null}).to_string()
-    }
+    };
 }
 
 #[derive(Clone)]
@@ -192,10 +212,9 @@ impl Node {
         Ok(status.clone())
     }
 
-    #[inline(always)]
     async fn do_request(
         &self,
-        data: String,
+        data: &RpcRequest,
         jwt_token: String,
     ) -> Result<(String, u16), reqwest::Error> {
         let resp = self
@@ -203,7 +222,7 @@ impl Node {
             .post(&self.url)
             .header("Content-Type", "application/json")
             .header("Authorization", jwt_token)
-            .body(data)
+            .body(serde_json::to_string(data).unwrap())
             .timeout(*TIMEOUT)
             .send()
             .await;
@@ -221,8 +240,34 @@ impl Node {
         Ok((resp_body, status))
     }
 
-    #[inline(always)]
     async fn do_request_no_timeout(
+        &self,
+        data: &RpcRequest,
+        jwt_token: String,
+    ) -> Result<(String, u16), reqwest::Error> {
+        let resp = self
+            .client
+            .post(&self.url)
+            .header("Content-Type", "application/json")
+            .header("Authorization", jwt_token)
+            .body(serde_json::to_string(data).unwrap())
+            .send()
+            .await;
+
+        let resp = match resp {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::error!("Error while sending request to node {}: {}", self.url, e);
+                return Err(e);
+            }
+        };
+
+        let status = resp.status().as_u16();
+        let resp_body = resp.text().await?;
+        Ok((resp_body, status))
+    }
+
+    async fn do_request_no_timeout_str(
         &self,
         data: String,
         jwt_token: String,
@@ -442,15 +487,15 @@ impl NodeRouter {
     // if there is no majority, then return None
     // if there is a draw, just return the first response
     // u64 on the response should be the "id" field from the any of the responses
-    fn fcu_majority(&self, results: &Vec<&str>) -> Option<String> {
+    fn fcu_majority(&self, results: &Vec<PayloadStatusV1>) -> Option<PayloadStatusV1> {
         let total_responses = results.len();
         let majority_count = (total_responses as f32 * self.majority_percentage) as usize;
 
         // Create a hashmap to store response frequencies
-        let mut response_counts: std::collections::HashMap<&str, usize> =
+        let mut response_counts: std::collections::HashMap<&PayloadStatusV1, usize> =
             std::collections::HashMap::new();
 
-        for &response in results.iter() {
+        for response in results.iter() {
             *response_counts.entry(response).or_insert(0) += 1;
         }
 
@@ -460,14 +505,14 @@ impl NodeRouter {
 
         for (response, &count) in response_counts.iter() {
             if count > max_count {
-                majority_response = Some(*response);
+                majority_response = Some(response);
                 max_count = count;
             }
         }
 
         // Check if the majority count is greater than or equal to the required count
         if max_count >= majority_count {
-            majority_response.map(|response| response.to_string())
+            return majority_response.cloned().cloned();
         } else {
             None
         }
@@ -475,17 +520,14 @@ impl NodeRouter {
 
     async fn fcu_logic(
         &self,
-        resps: &Vec<&str>,
-        req: String,
+        resps: &Vec<PayloadStatusV1>,
+        req: &RpcRequest,
         jwt_token: String,
-        id: &u64,
-    ) -> String {
+    ) -> Result<PayloadStatusV1, FcuLogicError> {
         if resps.is_empty() {
             // no responses, so return SYNCING
             tracing::error!("No responses, returning SYNCING.");
-            let req = serde_json::from_str::<serde_json::Value>(&req).unwrap();
-            return make_syncing_str(id, &req["params"][0], &req["method"].as_str().unwrap());
-            // safe to call unwrap here as we've already checked the method
+            return Err(FcuLogicError::NoResponses);
         }
 
         let majority = match self.fcu_majority(resps) {
@@ -493,60 +535,41 @@ impl NodeRouter {
             None => {
                 // no majority, so return SYNCING
                 tracing::error!("No majority, returning SYNCING.");
-                let req = serde_json::from_str::<serde_json::Value>(&req).unwrap();
-                return make_syncing_str(id, &req["params"][0], &req["method"].as_str().unwrap());
+                return Err(FcuLogicError::NoMajority);
             }
         };
 
-        let majorityjson: serde_json::Value = match serde_json::from_str(&majority) {
-            Ok(majorityjson) => majorityjson,
-            Err(e) => {
-                // majority is not valid json, so return SYNCING and inform the user
-                tracing::error!(
-                    "Majority is not valid json, returning SYNCING. Error: {}",
-                    e
-                );
-                let req = serde_json::from_str::<serde_json::Value>(&req).unwrap();
-                return make_syncing_str(id, &req["params"][0], &req["method"].to_string());
+        match majority.status {
+            PayloadStatusV1Status::Invalid | PayloadStatusV1Status::InvalidBlockHash => {
+                // majority is INVALID, so return INVALID (to not go through the next parts of the algorithm)
+                return Ok(majority);    // return Ok since this is not an error
             }
-        };
-
-        if majorityjson["result"]["payloadStatus"]["status"] == "INVALID" {
-            // majority is INVALID, so return INVALID (to not go through the next parts of the algorithm)
-            return majority;
+            _ => {}     // there still can be invalid in the responses
         }
+
 
         for resp in resps {
-            if resp.is_empty() {
-                continue;
-            }
-            let respjson: serde_json::Value = match serde_json::from_str(resp) {
-                Ok(respjson) => respjson,
-                Err(_) => {
-                    // resp is not valid json, so ignore
-                    continue;
-                }
-            };
+            // check if any of the responses are INVALID
 
-            if respjson["result"]["payloadStatus"]["status"] == "INVALID" {
-                // at least one node is INVALID, so return SYNCING
-                tracing::warn!("At least one node is INVALID, returning SYNCING.");
-                let req = serde_json::from_str::<serde_json::Value>(&req).unwrap();
-                return make_syncing_str(id, &req["params"][0], &req["method"].to_string());
+            match resp.status {
+                PayloadStatusV1Status::Invalid | PayloadStatusV1Status::InvalidBlockHash => {
+                    // a response is INVALID. One node could be right, no risks, return syncing to stall CL
+                    return Err(FcuLogicError::OneNodeIsInvalid);
+                }
+                _ => {}
             }
         }
 
-        // if we get here, all responses are VALID or SYNCING, so return the majority
-        // send to the syncing nodes to help them catch up with tokio::spawn
+        // send to the syncing nodes to help them catch up with tokio::spawn so we don't have to wait for them
         let syncing_nodes = self.alive_but_syncing_nodes.clone();
-        let req_clone = req.to_string();
         let jwt_token_clone = jwt_token.to_string();
+        let req_clone = req.clone();
         tokio::spawn(async move {
             let syncing_nodes = syncing_nodes.read().await;
             tracing::debug!("sending fcU to {} syncing nodes", syncing_nodes.len());
             for node in syncing_nodes.iter() {
                 if let Err(e) = node
-                    .do_request_no_timeout(req_clone.clone(), jwt_token_clone.clone())
+                    .do_request_no_timeout(&req_clone, jwt_token_clone.clone())
                     .await
                 {
                     // a lot of these syncing nodes are slow so we dont add a timeout
@@ -555,195 +578,291 @@ impl NodeRouter {
             }
         });
 
-        majority
+        // majority is checked and either VALID or SYNCING
+        Ok(majority)
+
     }
 
     async fn do_engine_route(
         &self,
-        data: String,
-        j: &serde_json::Value,
+        request: &RpcRequest,
         jwt_token: String,
     ) -> (String, u16) {
-        let meth = match j["method"].as_str() {
-            Some(meth) => meth,
-            None => {
-                tracing::error!("Request has no method field");
-                return (String::from("Request has no method field"), 400);
-            }
-        };
 
-        if meth == "engine_getPayloadV1"
-        // getPayloadV1 is for getting a block to be proposed, so no use in getting from multiple nodes
-        {
-            let node = match self.get_execution_node().await {
-                None => {
-                    return (String::from("No nodes available"), 500);
-                }
-                Some(node) => node,
-            };
-
-            let resp = node.do_request_no_timeout(data, jwt_token).await; // no timeout since the CL will just time us out themselves
-            tracing::debug!("engine_getPayloadV1 sent to node: {}", node.url);
-            match resp {
-                Ok(resp) => (resp.0, resp.1),
-                Err(e) => {
-                    tracing::warn!("engine_getPayloadV1 error: {}", e);
-                    (e.to_string(), 500)
-                }
-            }
-        } else if meth == "engine_getPayloadV2" {
-            // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
-            // so we should send this to all the nodes and then return the one with the highest blockValue
-            let mut resps: Vec<ArcStr> = Vec::new();
-            let alive_nodes = self.alive_nodes.read().await;
-            for node in alive_nodes.iter() {
-                let resp = node
-                    .do_request_no_timeout(data.clone(), jwt_token.clone())
-                    .await; // no timeout since the CL will just time us out themselves
-                match resp {
-                    Ok(resp) => {
-                        resps.push(resp.0.into());
+        match request.method {
+            // getPayloadV1 is for getting a block to be proposed, so no use in getting from multiple nodes
+            EngineMethod::engine_getPayloadV1 => {
+                let node = match self.get_execution_node().await {
+                    None => {
+                        return (String::from("No nodes available"), 500);
                     }
-                    Err(e) => {
-                        tracing::error!("engine_getPayloadV2 error: {}", e);
-                    }
-                }
-            }
-            mem::drop(alive_nodes);
-            let mut blocks: HashMap<U256, ArcStr> = HashMap::new();
-
-            for resp in resps {
-                let j = serde_json::from_str::<serde_json::Value>(&resp);
-
-                let j = match j {
-                    Ok(j) => j,
-                    Err(e) => {
-                        tracing::error!(
-                            "unable to deserialize engine_getPayloadV2 response: {}",
-                            e
-                        );
-                        continue;
-                    }
+                    Some(node) => node,
                 };
 
-                let block_value = &j["result"]["blockValue"].as_str();
-                let block_value = match block_value {
-                    Some(block_value) => block_value,
-                    None => {
-                        // try and extract the error field
-                        let error = &j["error"]["message"].as_str();
-                        match error {
-                            Some(error) => {
-                                tracing::error!(
-                                    "engine_getPayloadV2 response has error field: {}",
-                                    error
-                                );
-                                continue;
-                            }
-                            None => {
-                                tracing::error!(
-                                    "engine_getPayloadV2 response has no blockValue or error field"
-                                );
-                                continue;
-                            }
+                let resp = node.do_request_no_timeout(request, jwt_token).await; // no timeout since the CL will just time us out themselves
+                tracing::debug!("engine_getPayloadV1 sent to node: {}", node.url);
+                match resp {
+                    Ok(resp) => (resp.0, resp.1),
+                    Err(e) => {
+                        tracing::warn!("engine_getPayloadV1 error: {}", e);
+                        (e.to_string(), 500)
+                    }
+                }
+            },
+            EngineMethod::engine_getPayloadV2 => {
+                // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
+                // so we should send this to all the nodes and then return the one with the highest blockValue
+                let mut resps: Vec<ArcStr> = Vec::new();
+                let alive_nodes = self.alive_nodes.read().await;
+                for node in alive_nodes.iter() {
+                    let resp = node
+                        .do_request_no_timeout(&request, jwt_token.clone())
+                        .await; // no timeout since the CL will just time us out themselves
+                    match resp {
+                        Ok(resp) => {
+                            resps.push(resp.0.into());
+                        }
+                        Err(e) => {
+                            tracing::error!("engine_getPayloadV2 error: {}", e);
                         }
                     }
+                }
+                mem::drop(alive_nodes);
+                let mut blocks: HashMap<U256, ArcStr> = HashMap::new();
+
+                for resp in resps {
+                    let j = match parse_result(&resp) {
+                        Ok(j) => j,
+                        Err(e) => {
+                            tracing::error!("engine_getPayloadV2 response has no result field: {:?}", e);
+                            continue;
+                        }
+                    };
+                    
+
+                    let block_value = &j["result"]["blockValue"].as_str();
+                    let block_value = match block_value {
+                        Some(block_value) => block_value,
+                        None => {
+                            // try and extract the error field
+                            let error = &j["error"]["message"].as_str();
+                            match error {
+                                Some(error) => {
+                                    tracing::error!(
+                                        "engine_getPayloadV2 response has error field: {}",
+                                        error
+                                    );
+                                    continue;
+                                }
+                                None => {
+                                    tracing::error!(
+                                        "engine_getPayloadV2 response has no blockValue or error field"
+                                    );
+                                    continue;
+                                }
+                            }
+                        }
+                    };
+
+                    let block_value = U256::from_str_radix(block_value, 16).unwrap();
+                    blocks.insert(block_value, resp);
+                }
+
+                match blocks.iter().max_by_key(|(k, _v)| *k) {
+                    Some((k, v)) => {
+                        tracing::info!("engine_getPayloadV2: highest blockValue is {}", k);
+                        return (v.to_string(), 200);
+                    }
+                    None => {
+                        tracing::error!("No blocks found in engine_getPayloadV2 responses");
+                        return (make_error(&request.id, "No blocks found in engine_getPayloadV2 responses"), 200);
+                    }
+                }
+            },
+
+            | EngineMethod::engine_newPayloadV1
+            | EngineMethod::engine_newPayloadV2 =>
+            {
+                tracing::debug!("Sending newPayload to alive nodes",);
+                let mut resps: Vec<String> = Vec::new();
+                let alive_nodes = self.alive_nodes.read().await;
+                for node in alive_nodes.iter() {
+                    let resp = node.do_request(request, jwt_token.clone()).await;
+                    match resp {
+                        Ok(resp) => {
+                            resps.push(resp.0);
+                        }
+                        Err(e) => {
+                            tracing::error!("{:?} error: {}", request.method, e);
+                        }
+                    }
+                }
+                mem::drop(alive_nodes);
+
+                let mut resps_new = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
+                for item in &resps {
+                    let result = parse_result(item);
+                    match result {
+                        Err(e) => {
+                            tracing::error!("Error parsing response for {:?}: {:?}", request.method, e);
+                            continue;
+                        },
+                        Ok(result) => {
+                            let res: PayloadStatusV1 = match serde_json::from_value(result) {   // we need to get first item in the result array
+                                Err(e) => {
+                                    tracing::error!("Error deserializing response for {:?}: {:?}", request.method, e);
+                                    continue;
+                                },
+                                Ok(result) => result,
+                            };
+                            resps_new.push(res);
+                        },
+                    };
+                }  
+
+                let resp = match self.fcu_logic(&resps_new, request, jwt_token).await {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        match e {
+                            FcuLogicError::NoResponses => {
+                                tracing::error!("No responses for {:?}, returning SYNCING", request.method);
+                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
+                            },
+                            FcuLogicError::NoMajority => {
+                                tracing::error!("No majority for {:?}, returning SYNCING", request.method);
+                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
+                            },
+                            FcuLogicError::OneNodeIsInvalid => {
+                                tracing::error!("One node is invalid for {:?}, returning INVALID", request.method);
+                                return (make_response(&request.id, PayloadStatusV1 {
+                                    status: PayloadStatusV1Status::Invalid,
+                                    latest_valid_hash: None,
+                                    validation_error: None,
+                                }), 200);
+                            },
+                        }
+                    },
+                };
+                
+                (make_response(&request.id, resp), 200)
+            },
+
+            EngineMethod::engine_forkchoiceUpdatedV1
+            | EngineMethod::engine_forkchoiceUpdatedV2 => {
+                tracing::debug!("Sending fcU to alive nodes");
+                let mut resps: Vec<String> = Vec::new();
+                let alive_nodes = self.alive_nodes.read().await;
+                for node in alive_nodes.iter() {
+                    let resp = node.do_request(request, jwt_token.clone()).await;
+                    match resp {
+                        Ok(resp) => {
+                            resps.push(resp.0);
+                        }
+                        Err(e) => {
+                            tracing::error!("{:?} error: {}", request.method, e);
+                        }
+                    }
+                }
+                mem::drop(alive_nodes);
+
+                let mut resps_new = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
+                for item in &resps {
+                    let result = parse_result(item);
+                    match result {
+                        Err(e) => {
+                            tracing::error!("Error parsing response for {:?}: {:?}", request.method, e);
+                            continue;
+                        },
+                        Ok(result) => {
+                            // the payloadstatus is not the value of the result like for newPayload, but is in result.payloadStatus
+
+                            let res: PayloadStatusV1 = match serde_json::from_value(result["payloadStatus"].clone()) {   // we need to get first item in the result array
+                                Err(e) => {
+                                    tracing::error!("Error deserializing response for {:?}: {:?}", request.method, e);
+                                    continue;
+                                },
+                                Ok(result) => result,
+                            };
+                            resps_new.push(res);
+                        },
+                    };
+                }  
+                // todo: check if payloadId is not null and return that if fcu_logic returns valid
+
+                let resp = match self.fcu_logic(&resps_new, request, jwt_token).await {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        match e {
+                            FcuLogicError::NoResponses => {
+                                tracing::error!("No responses for {:?}, returning SYNCING", request.method);
+                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
+                            },
+                            FcuLogicError::NoMajority => {
+                                tracing::error!("No majority for {:?}, returning SYNCING", request.method);
+                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
+                            },
+                            FcuLogicError::OneNodeIsInvalid => {
+                                tracing::error!("One node is invalid for {:?}, returning INVALID", request.method);
+                                return (make_response(&request.id, PayloadStatusV1 {
+                                    status: PayloadStatusV1Status::Invalid,
+                                    latest_valid_hash: None,
+                                    validation_error: None,
+                                }), 200);
+                            },
+                        }
+                    },
+                };
+                
+                (make_response(&request.id, resp), 200)
+            }
+
+
+            _ => {
+                // wait for primary node's response, but also send to all other nodes
+                let primary_node = match self.get_execution_node().await {
+                    Some(primary_node) => primary_node,
+                    None => {
+                        tracing::warn!("No primary node available");
+                        return (String::from("No nodes available"), 500);
+                    }
                 };
 
-                let block_value = U256::from_str_radix(block_value, 16).unwrap();
-                blocks.insert(block_value, resp);
-            }
+                let resp = primary_node
+                    .do_request_no_timeout(request, jwt_token.clone())
+                    .await;
+                tracing::debug!("Sent to primary node: {}", primary_node.url);
 
-            match blocks.iter().max_by_key(|(k, _v)| *k) {
-                Some((k, v)) => {
-                    tracing::info!("engine_getPayloadV2: highest blockValue is {}", k);
-                    return (v.to_string(), 200);
-                }
-                None => {
-                    tracing::error!("No blocks found in engine_getPayloadV2 responses");
-                    return (String::from("No blocks found"), 500);
-                }
-            }
-        } else if meth == "engine_forkchoiceUpdatedV1"
-            || meth == "engine_newPayloadV1"
-            || meth == "engine_forkchoiceUpdatedV2"
-            || meth == "engine_newPayloadV2"
-        {
-            tracing::debug!("Sending {} to alive nodes", meth);
-            let mut resps: Vec<String> = Vec::new();
-            let alive_nodes = self.alive_nodes.read().await;
-            for node in alive_nodes.iter() {
-                let resp = node.do_request(data.clone(), jwt_token.clone()).await;
+                let alive_nodes = self.alive_nodes.clone();
+                let jwt_token = jwt_token.to_owned();
+                let request_clone = request.clone();
+                tokio::spawn(async move {
+                    let alive_nodes = alive_nodes.read().await;
+                    for node in alive_nodes.iter() {
+                        if node.url != primary_node.url {
+                            match node
+                                .do_request_no_timeout(&request_clone, jwt_token.clone())
+                                .await
+                            {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    tracing::error!("error sending fcU to syncing node: {}", e);
+                                }
+                            };
+                        }
+                    }
+                });
                 match resp {
-                    Ok(resp) => {
-                        resps.push(resp.0);
-                    }
+                    Ok(resp) => (resp.0, resp.1),
                     Err(e) => {
-                        tracing::error!("{} error: {}", meth, e);
+                        tracing::warn!("Error from primary node: {}", e);
+                        (e.to_string(), 500)
                     }
-                }
-            }
-            mem::drop(alive_nodes);
-            let id = match j["id"].as_u64() {
-                Some(id) => id,
-                None => {
-                    tracing::warn!("{} request has no id field", meth);
-                    return (String::from("No id field"), 500);
-                }
-            };
-
-            let mut resps_new = Vec::<&str>::with_capacity(resps.len()); // faster to allocate in one go
-            for item in &resps {
-                resps_new.push(item);
-            }
-
-            let resp = self.fcu_logic(&resps_new, data, jwt_token, &id).await;
-            (resp, 200)
-        } else {
-            // wait for primary node's response, but also send to all other nodes
-            let primary_node = match self.get_execution_node().await {
-                Some(primary_node) => primary_node,
-                None => {
-                    tracing::warn!("No primary node available");
-                    return (String::from("No nodes available"), 500);
-                }
-            };
-
-            let resp = primary_node
-                .do_request_no_timeout(data.clone(), jwt_token.clone())
-                .await;
-            tracing::debug!("Sent to primary node: {}", primary_node.url);
-
-            let alive_nodes = self.alive_nodes.clone();
-            let data = data.to_owned();
-            let jwt_token = jwt_token.to_owned();
-            tokio::spawn(async move {
-                let alive_nodes = alive_nodes.read().await;
-                for node in alive_nodes.iter() {
-                    if node.url != primary_node.url {
-                        match node
-                            .do_request_no_timeout(data.clone(), jwt_token.clone())
-                            .await
-                        {
-                            Ok(_) => {}
-                            Err(e) => {
-                                tracing::error!("error sending fcU to syncing node: {}", e);
-                            }
-                        };
-                    }
-                }
-            });
-            match resp {
-                Ok(resp) => (resp.0, resp.1),
-                Err(e) => {
-                    tracing::warn!("Error from primary node: {}", e);
-                    (e.to_string(), 500)
                 }
             }
         }
     }
 
-    async fn do_route_normal(&self, data: String, jwt_token: String) -> (String, u16) {
+    async fn do_route_normal(&self, request: String, jwt_token: String) -> (String, u16) {
         // simply send request to primary node
         let primary_node = match self.get_execution_node().await {
             Some(primary_node) => primary_node,
@@ -753,7 +872,7 @@ impl NodeRouter {
             }
         };
 
-        let resp = primary_node.do_request_no_timeout(data, jwt_token).await;
+        let resp = primary_node.do_request_no_timeout_str(request, jwt_token).await;
         match resp {
             Ok(resp) => (resp.0, resp.1),
             Err(e) => (e.to_string(), 500),
@@ -770,7 +889,7 @@ async fn route_all(
     let j: serde_json::Value = match serde_json::from_str(&body) {
         Ok(j) => j,
         Err(e) => {
-            tracing::error!("Couldn't deserizlie request. Error: {}. Body: {}", e, body);
+            tracing::error!("Couldn't deserialize request. Error: {}. Body: {}", e, body);
             return (
                 StatusCode::from_u16(400).unwrap(),
                 [(header::CONTENT_TYPE, "application/json")],
@@ -778,8 +897,7 @@ async fn route_all(
             );
         }
     };
-
-    tracing::debug!("Request received, method: {}", j["method"]);
+    
     let meth = match j["method"].as_str() {
         Some(meth) => meth,
         None => {
@@ -791,9 +909,26 @@ async fn route_all(
             );
         }
     };
+    tracing::debug!("Request received, method: {}", j["method"]);
+
+    
 
     if meth.starts_with("engine_") {
         tracing::trace!("Routing to engine route");
+
+        let request: RpcRequest = match serde_json::from_str(&body) {
+            Ok(request) => request,
+            Err(e) => {
+                tracing::error!("Error deserializing request: {}", e);
+                return (
+                    StatusCode::from_u16(400).unwrap(),
+                    [(header::CONTENT_TYPE, "application/json")],
+                    format!("Error deserializing request {}", e),
+                );
+            }
+        };
+
+
         let jwt_token = match headers.get("Authorization") {
             Some(jwt_token) => match jwt_token.to_str() {
                 Ok(jwt_token) => jwt_token,
@@ -816,8 +951,9 @@ async fn route_all(
             }
         };
 
+
         let (resp, status) = router
-            .do_engine_route(body, &j, jwt_token.to_string())
+            .do_engine_route(&request, jwt_token.to_string())
             .await;
 
         return (
@@ -825,7 +961,8 @@ async fn route_all(
             [(header::CONTENT_TYPE, "application/json")],
             resp.to_string(),
         );
-    } else {
+    }
+    else {
         tracing::trace!("Routing to normal route");
 
         let jwt_token = headers.get("Authorization");

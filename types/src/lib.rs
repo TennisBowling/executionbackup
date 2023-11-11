@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+#![allow(non_camel_case_types)]
 use ethereum_types::{Address, H256, H64, U256};
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
@@ -73,7 +75,7 @@ latestValidHash: DATA|null, 32 Bytes - the hash of the most recent valid block i
 validationError: String|null - a message providing additional details on the validation error if the payload is classified as INVALID or INVALID_BLOCK_HASH.
  */
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub enum PayloadStatusV1Status {
     #[serde(rename = "VALID")]
     Valid,
@@ -87,7 +89,7 @@ pub enum PayloadStatusV1Status {
     InvalidBlockHash,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct PayloadStatusV1 {
     pub status: PayloadStatusV1Status,
@@ -185,6 +187,8 @@ impl ExecutionPayload {
     }
 }
 
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[metastruct(mappings(map_execution_block_header_fields()))]
 pub struct ExecutionBlockHeader {
@@ -236,4 +240,65 @@ impl ExecutionBlockHeader {
             withdrawals_root: rlp_withdrawals_root,
         }
     }
+}
+
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Claims {
+    /// issued-at claim. Represented as seconds passed since UNIX_EPOCH.
+    pub iat: i64,
+}
+
+#[derive(PartialEq, Clone, Copy)]
+pub enum SyncingStatus {
+    Synced,
+    Offline,
+    OnlineAndSyncing,
+    NodeNotInitialized,
+}
+
+#[derive(Debug)]
+
+pub enum FcuLogicError {
+    NoMajority,
+    OneNodeIsInvalid,
+    NoResponses,
+}
+
+#[derive(Debug)]
+pub enum ParseError {
+    MethodNotFound,
+    NoMethod,
+    NoId,
+    InvalidJson,
+    NoParams,
+    ElError,
+}
+
+#[derive(Clone)]
+pub struct NodeHealth {
+    pub status: SyncingStatus,
+    pub resp_time: u128,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum EngineMethod {
+    engine_newPayloadV1,
+    engine_forkchoiceUpdatedV1,
+    engine_getPayloadV1,
+    engine_exchangeTransitionConfigurationV1,
+    engine_exchangeCapabilities,
+    engine_newPayloadV2,
+    engine_forkchoiceUpdatedV2,
+    engine_getPayloadV2,
+    engine_getPayloadBodiesByHashV1,
+    engine_getPayloadBodiesByRangeV1,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct RpcRequest {
+    pub method: EngineMethod,
+    pub params: serde_json::Value,
+    pub id: u64,
+    pub jsonrpc: String,
 }
