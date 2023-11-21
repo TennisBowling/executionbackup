@@ -13,7 +13,7 @@ make build
 ```
 And replacing `make build` with `cargo build --profile highperf --target-dir bin` for windows.
 
-## Usage
+## Sample Usage
 ```bash
 executionbackup -n http://node1:port,http://node2:port -j /path/to/jwt_secret
 ```
@@ -36,3 +36,7 @@ Truth Table for responses to CL when EL's are different:
 # Execution API backup Dockerized
 
 You can run a docker-compose enabled version of the tool by making use of the dockerized folder
+
+# Testing
+```
+cargo test --all```

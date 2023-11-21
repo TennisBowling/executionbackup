@@ -1,6 +1,6 @@
 [package]
 name = "executionbackup"
-version = "1.0.6"
+version = "1.1.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -29,6 +29,11 @@ metastruct = "0.1.0"
 ethereum-types = "0.14.1"
 types = { path = "types" }
 arcstr = "1.1.5"
+lazy_static = "1.4.0"
+array-bytes = "6.1.0"
+
+[workspace]
+members = ["types"]
 
 
 [profile.highperf]
