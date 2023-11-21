@@ -2,3 +2,5 @@ NODES=<comma separated ndoes>
 PORT=<port to expose>
 LOG_LEVEL=<log level>
 JWT_SECRET=<jwt secret>
+RELEASE_TAG=<specify release tag if desired stable release build>
+FCU_MAJORITY=0.6
