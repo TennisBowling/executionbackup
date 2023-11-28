@@ -18,3 +18,5 @@ Cargo.lock
 # Secret files for containerized version
 .env
 .jwt
+
+jwt.txt

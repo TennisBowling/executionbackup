@@ -187,8 +187,6 @@ impl ExecutionPayload {
     }
 }
 
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[metastruct(mappings(map_execution_block_header_fields()))]
 pub struct ExecutionBlockHeader {
@@ -241,7 +239,6 @@ impl ExecutionBlockHeader {
         }
     }
 }
-
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Claims {
@@ -301,6 +298,13 @@ pub struct RpcRequest {
     pub params: serde_json::Value,
     pub id: u64,
     pub jsonrpc: String,
+}
+
+impl RpcRequest {
+    #[inline]
+    pub fn as_bytes(&self) -> Vec<u8> {
+        serde_json::to_vec(self).unwrap()
+    }
 }
 
 #[derive(Serialize, Deserialize)]

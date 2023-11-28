@@ -1,5 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
 use arcstr::ArcStr;
 use axum::{
     self,
@@ -17,6 +15,7 @@ use std::{collections::HashMap, sync::Arc};
 use std::{mem, net::SocketAddr};
 use tokio::{sync::RwLock, time::Duration};
 mod verify_hash;
+use lazy_static::lazy_static;
 use types::*;
 use verify_hash::verify_payload_block_hash;
 
@@ -29,7 +28,6 @@ lazy_static! {
         dur
     };
 }
-
 
 fn make_jwt(jwt_key: &jsonwebtoken::EncodingKey) -> Result<String, jsonwebtoken::errors::Error> {
     let claim_inst = Claims {
@@ -47,7 +45,7 @@ fn make_response(id: &u64, result: serde_json::Value) -> String {
 }
 
 fn make_error(id: &u64, error: &str) -> String {
-    json!({"jsonrpc":"2.0","id":id,"error":error}).to_string()
+    json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32700, "message": error}}).to_string()
 }
 
 fn parse_result(resp: &str) -> Result<serde_json::Value, ParseError> {
@@ -74,7 +72,7 @@ fn parse_result(resp: &str) -> Result<serde_json::Value, ParseError> {
             return Err(ParseError::MethodNotFound);
         }
     };
-    
+
     Ok(result.clone())
 }
 
@@ -222,7 +220,7 @@ impl Node {
             .post(&self.url)
             .header("Content-Type", "application/json")
             .header("Authorization", jwt_token)
-            .body(serde_json::to_string(data).unwrap())
+            .body(data.as_bytes())
             .timeout(*TIMEOUT)
             .send()
             .await;
@@ -250,7 +248,7 @@ impl Node {
             .post(&self.url)
             .header("Content-Type", "application/json")
             .header("Authorization", jwt_token)
-            .body(serde_json::to_string(data).unwrap())
+            .body(data.as_bytes())
             .send()
             .await;
 
@@ -351,10 +349,13 @@ impl NodeRouter {
             let check = async move {
                 match node_clone.check_status(jwt_key_clone).await {
                     Ok(status) => (status, node_clone.clone()),
-                    Err(_) => (NodeHealth {
-                        status: SyncingStatus::Offline,
-                        resp_time: 0,
-                    }, node_clone.clone()),
+                    Err(_) => (
+                        NodeHealth {
+                            status: SyncingStatus::Offline,
+                            resp_time: 0,
+                        },
+                        node_clone.clone(),
+                    ),
                 }
             };
             checks.push(check);
@@ -542,11 +543,10 @@ impl NodeRouter {
         match majority.status {
             PayloadStatusV1Status::Invalid | PayloadStatusV1Status::InvalidBlockHash => {
                 // majority is INVALID, so return INVALID (to not go through the next parts of the algorithm)
-                return Ok(majority);    // return Ok since this is not an error
+                return Ok(majority); // return Ok since this is not an error
             }
-            _ => {}     // there still can be invalid in the responses
+            _ => {} // there still can be invalid in the responses
         }
-
 
         for resp in resps {
             // check if any of the responses are INVALID
@@ -580,15 +580,9 @@ impl NodeRouter {
 
         // majority is checked and either VALID or SYNCING
         Ok(majority)
-
     }
 
-    async fn do_engine_route(
-        &self,
-        request: &RpcRequest,
-        jwt_token: String,
-    ) -> (String, u16) {
-
+    async fn do_engine_route(&self, request: &RpcRequest, jwt_token: String) -> (String, u16) {
         match request.method {
             // getPayloadV1 is for getting a block to be proposed, so no use in getting from multiple nodes
             EngineMethod::engine_getPayloadV1 => {
@@ -605,10 +599,11 @@ impl NodeRouter {
                     Ok(resp) => (resp.0, resp.1),
                     Err(e) => {
                         tracing::warn!("engine_getPayloadV1 error: {}", e);
-                        (e.to_string(), 500)
+                        // error as {"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}
+                        (make_error(&request.id, &e.to_string()), 200)
                     }
                 }
-            },
+            }
             EngineMethod::engine_getPayloadV2 => {
                 // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
                 // so we should send this to all the nodes and then return the one with the highest blockValue
@@ -634,11 +629,13 @@ impl NodeRouter {
                     let j = match parse_result(&resp) {
                         Ok(j) => j,
                         Err(e) => {
-                            tracing::error!("engine_getPayloadV2 response has no result field: {:?}", e);
+                            tracing::error!(
+                                "engine_getPayloadV2 response has no result field: {:?}",
+                                e
+                            );
                             continue;
                         }
                     };
-                    
 
                     let block_value = &j["result"]["blockValue"].as_str();
                     let block_value = match block_value {
@@ -675,14 +672,18 @@ impl NodeRouter {
                     }
                     None => {
                         tracing::error!("No blocks found in engine_getPayloadV2 responses");
-                        return (make_error(&request.id, "No blocks found in engine_getPayloadV2 responses"), 200);
+                        return (
+                            make_error(
+                                &request.id,
+                                "No blocks found in engine_getPayloadV2 responses",
+                            ),
+                            200,
+                        );
                     }
                 }
-            },
+            }
 
-            | EngineMethod::engine_newPayloadV1
-            | EngineMethod::engine_newPayloadV2 =>
-            {
+            EngineMethod::engine_newPayloadV1 | EngineMethod::engine_newPayloadV2 => {
                 tracing::debug!("Sending newPayload to alive nodes",);
                 let mut resps: Vec<String> = Vec::new();
                 let alive_nodes = self.alive_nodes.read().await;
@@ -704,47 +705,71 @@ impl NodeRouter {
                     let result = parse_result(item);
                     match result {
                         Err(e) => {
-                            tracing::error!("Error parsing response for {:?}: {:?}", request.method, e);
+                            tracing::error!(
+                                "Error parsing response for {:?}: {:?}",
+                                request.method,
+                                e
+                            );
                             continue;
-                        },
+                        }
                         Ok(result) => {
-                            let res: PayloadStatusV1 = match serde_json::from_value(result) {   // we need to get first item in the result array
+                            let res: PayloadStatusV1 = match serde_json::from_value(result) {
+                                // we need to get first item in the result array
                                 Err(e) => {
-                                    tracing::error!("Error deserializing response for {:?}: {:?}", request.method, e);
+                                    tracing::error!(
+                                        "Error deserializing response for {:?}: {:?}",
+                                        request.method,
+                                        e
+                                    );
                                     continue;
-                                },
+                                }
                                 Ok(result) => result,
                             };
                             resps_new.push(res);
-                        },
+                        }
                     };
-                }  
+                }
 
                 let resp = match self.fcu_logic(&resps_new, request, jwt_token).await {
                     Ok(resp) => resp,
-                    Err(e) => {
-                        match e {
-                            FcuLogicError::NoResponses => {
-                                tracing::error!("No responses for {:?}, returning SYNCING", request.method);
-                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
-                            },
-                            FcuLogicError::NoMajority => {
-                                tracing::error!("No majority for {:?}, returning SYNCING", request.method);
-                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
-                            },
-                            FcuLogicError::OneNodeIsInvalid => {
-                                tracing::error!("One node is invalid for {:?}, returning SYNCING", request.method);
-                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
-                            },
+                    Err(e) => match e {
+                        FcuLogicError::NoResponses => {
+                            tracing::error!(
+                                "No responses for {:?}, returning SYNCING",
+                                request.method
+                            );
+                            return (
+                                make_syncing_str(&request.id, &request.params[0], &request.method),
+                                200,
+                            );
+                        }
+                        FcuLogicError::NoMajority => {
+                            tracing::error!(
+                                "No majority for {:?}, returning SYNCING",
+                                request.method
+                            );
+                            return (
+                                make_syncing_str(&request.id, &request.params[0], &request.method),
+                                200,
+                            );
+                        }
+                        FcuLogicError::OneNodeIsInvalid => {
+                            tracing::error!(
+                                "One node is invalid for {:?}, returning SYNCING",
+                                request.method
+                            );
+                            return (
+                                make_syncing_str(&request.id, &request.params[0], &request.method),
+                                200,
+                            );
                         }
                     },
                 };
-                
-                (make_response(&request.id, json!(resp)), 200)
-            },
 
-            EngineMethod::engine_forkchoiceUpdatedV1
-            | EngineMethod::engine_forkchoiceUpdatedV2 => {
+                (make_response(&request.id, json!(resp)), 200)
+            }
+
+            EngineMethod::engine_forkchoiceUpdatedV1 | EngineMethod::engine_forkchoiceUpdatedV2 => {
                 tracing::debug!("Sending fcU to alive nodes");
                 let mut resps: Vec<String> = Vec::new();
                 let alive_nodes = self.alive_nodes.read().await;
@@ -766,49 +791,83 @@ impl NodeRouter {
                     let result = parse_result(item);
                     match result {
                         Err(e) => {
-                            tracing::error!("Error parsing response for {:?}: {:?}", request.method, e);
+                            tracing::error!(
+                                "Error parsing response for {:?}: {:?}",
+                                request.method,
+                                e
+                            );
                             continue;
-                        },
+                        }
                         Ok(result) => {
                             // the payloadstatus is not the value of the result like for newPayload, but is in result.payloadStatus
 
-                            let res: PayloadStatusV1 = match serde_json::from_value(result["payloadStatus"].clone()) {   // we need to get first item in the result array
-                                Err(e) => {
-                                    tracing::error!("Error deserializing response for {:?}: {:?}", request.method, e);
-                                    continue;
-                                },
-                                Ok(result) => result,
-                            };
+                            let res: PayloadStatusV1 =
+                                match serde_json::from_value(result["payloadStatus"].clone()) {
+                                    // we need to get first item in the result array
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Error deserializing response for {:?}: {:?}",
+                                            request.method,
+                                            e
+                                        );
+                                        continue;
+                                    }
+                                    Ok(result) => result,
+                                };
                             resps_new.push(res);
-                        },
+                        }
                     };
-                }  
+                }
                 // todo: check if payloadId is not null and return that if fcu_logic returns valid
 
                 let resp = match self.fcu_logic(&resps_new, request, jwt_token).await {
                     Ok(resp) => resp,
-                    Err(e) => {
-                        match e {
-                            FcuLogicError::NoResponses => {
-                                tracing::error!("No responses for {:?}, returning SYNCING", request.method);
-                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
-                            },
-                            FcuLogicError::NoMajority => {
-                                tracing::error!("No majority for {:?}, returning SYNCING", request.method);
-                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
-                            },
-                            FcuLogicError::OneNodeIsInvalid => {
-                                tracing::error!("One node is invalid for {:?}, returning SYNCING", request.method);
-                                return (make_syncing_str(&request.id, &request.params[0], &request.method), 200);
-                            },
+                    Err(e) => match e {
+                        FcuLogicError::NoResponses => {
+                            tracing::error!(
+                                "No responses for {:?}, returning SYNCING",
+                                request.method
+                            );
+                            return (
+                                make_syncing_str(&request.id, &request.params[0], &request.method),
+                                200,
+                            );
+                        }
+                        FcuLogicError::NoMajority => {
+                            tracing::error!(
+                                "No majority for {:?}, returning SYNCING",
+                                request.method
+                            );
+                            return (
+                                make_syncing_str(&request.id, &request.params[0], &request.method),
+                                200,
+                            );
+                        }
+                        FcuLogicError::OneNodeIsInvalid => {
+                            tracing::error!(
+                                "One node is invalid for {:?}, returning SYNCING",
+                                request.method
+                            );
+                            return (
+                                make_syncing_str(&request.id, &request.params[0], &request.method),
+                                200,
+                            );
                         }
                     },
                 };
-                
-                // return null for payloadId which is next to the payloadStatus todo: make it actually use payloadid
-                (make_response(&request.id, json!(forkchoiceUpdatedResponse{ payloadStatus: resp, payloadId: None })), 200)
-            }
 
+                // return null for payloadId which is next to the payloadStatus todo: make it actually use payloadid
+                (
+                    make_response(
+                        &request.id,
+                        json!(forkchoiceUpdatedResponse {
+                            payloadStatus: resp,
+                            payloadId: None
+                        }),
+                    ),
+                    200,
+                )
+            }
 
             _ => {
                 // wait for primary node's response, but also send to all other nodes
@@ -816,7 +875,7 @@ impl NodeRouter {
                     Some(primary_node) => primary_node,
                     None => {
                         tracing::warn!("No primary node available");
-                        return (String::from("No nodes available"), 500);
+                        return (make_error(&request.id, "No nodes available"), 500);
                     }
                 };
 
@@ -848,7 +907,7 @@ impl NodeRouter {
                     Ok(resp) => (resp.0, resp.1),
                     Err(e) => {
                         tracing::warn!("Error from primary node: {}", e);
-                        (e.to_string(), 500)
+                        return (make_error(&request.id, &e.to_string()), 200);
                     }
                 }
             }
@@ -861,14 +920,23 @@ impl NodeRouter {
             Some(primary_node) => primary_node,
             None => {
                 tracing::warn!("No primary node available for normal request");
-                return (String::from("No nodes available"), 500);
+                let id = match serde_json::from_str::<RpcRequest>(&request) {
+                    Ok(request) => request.id,
+                    Err(e) => {
+                        tracing::error!("Error deserializing request: {}", e);
+                        return (make_error(&0, &e.to_string()), 200);
+                    }
+                };
+                return (make_error(&id, "No nodes available"), 500);
             }
         };
 
-        let resp = primary_node.do_request_no_timeout_str(request, jwt_token).await;
+        let resp = primary_node
+            .do_request_no_timeout_str(request, jwt_token)
+            .await;
         match resp {
             Ok(resp) => (resp.0, resp.1),
-            Err(e) => (e.to_string(), 500),
+            Err(e) => (make_error(&0, &e.to_string()), 200),
         }
     }
 }
@@ -884,43 +952,41 @@ async fn route_all(
         Err(e) => {
             tracing::error!("Couldn't deserialize request. Error: {}. Body: {}", e, body);
             return (
-                StatusCode::from_u16(400).unwrap(),
+                StatusCode::BAD_REQUEST,
                 [(header::CONTENT_TYPE, "application/json")],
-                "Couldn't deserialize request body".to_string(),
+                make_error(&0, "Couldn't deserialize request body").to_string(),
             );
         }
     };
-    
+
     let meth = match j["method"].as_str() {
         Some(meth) => meth,
         None => {
             tracing::error!("Request has no method field");
             return (
-                StatusCode::from_u16(400).unwrap(),
+                StatusCode::BAD_REQUEST,
                 [(header::CONTENT_TYPE, "application/json")],
-                "Request has no method field".to_string(),
+                make_error(&0, "Request has no method field").to_string(),
             );
         }
     };
+
     tracing::debug!("Request received, method: {}", j["method"]);
 
-    
-
     if meth.starts_with("engine_") {
-        tracing::trace!("Routing to engine route");
+        tracing::trace!("Routing {} to engine route", j["method"]);
 
         let request: RpcRequest = match serde_json::from_str(&body) {
             Ok(request) => request,
             Err(e) => {
-                tracing::error!("Error deserializing request: {}", e);
+                tracing::error!("Error deserializing {} request: {}", j["method"], e);
                 return (
-                    StatusCode::from_u16(400).unwrap(),
+                    StatusCode::BAD_REQUEST,
                     [(header::CONTENT_TYPE, "application/json")],
-                    format!("Error deserializing request {}", e),
+                    make_error(&0, "Error deserializing request").to_string(),
                 );
             }
         };
-
 
         let jwt_token = match headers.get("Authorization") {
             Some(jwt_token) => match jwt_token.to_str() {
@@ -928,22 +994,22 @@ async fn route_all(
                 Err(e) => {
                     tracing::error!("Error while converting jwt token to string: {}", e);
                     return (
-                        StatusCode::from_u16(400).unwrap(),
+                        StatusCode::BAD_REQUEST,
                         [(header::CONTENT_TYPE, "application/json")],
-                        "Error while converting jwt token to string".to_string(),
+                        make_error(&request.id, "Error while converting jwt token to string")
+                            .to_string(),
                     );
                 }
             },
             None => {
                 tracing::error!("Request has no Authorization header");
                 return (
-                    StatusCode::from_u16(400).unwrap(),
+                    StatusCode::BAD_REQUEST,
                     [(header::CONTENT_TYPE, "application/json")],
-                    "Request has no Authorization header".to_string(),
+                    make_error(&request.id, "Request has no Authorization header").to_string(),
                 );
             }
         };
-
 
         let (resp, status) = router
             .do_engine_route(&request, jwt_token.to_string())
@@ -952,10 +1018,9 @@ async fn route_all(
         return (
             StatusCode::from_u16(status).unwrap(),
             [(header::CONTENT_TYPE, "application/json")],
-            resp.to_string(),
+            resp,
         );
-    }
-    else {
+    } else {
         tracing::trace!("Routing to normal route");
 
         let jwt_token = headers.get("Authorization");
