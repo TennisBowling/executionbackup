@@ -1,6 +1,20 @@
-NODES=<comma separated ndoes>
-PORT=<port to expose>
-LOG_LEVEL=<log level>
-JWT_SECRET=<jwt secret>
-RELEASE_TAG=<specify release tag if desired stable release build>
-FCU_MAJORITY=0.6
+# -------------- MANDATORY VARIABLES ------------------
+
+# jwt secret specified on the execution client
+JWT_SECRET=
+# comma separated nodes. Ie. http://0.0.0.0:8551
+NODES=
+# port at which the execbackup service will be running
+PORT=
+
+# --------------- OPTIONAL VARIABLES -----------------
+
+# specify release tag if desired stable release build, if no value provided it builds from master branch
+RELEASE_TAG=
+# specify fcu_majority value if desired, if no value specified 0.6 set by default
+FCU_MAJORITY=
+# for seeing rtt in ms. Used for latency debugging. Possible values <true/false>. 
+# If no value specified it is off by default
+SHOW_NODE_TIMINGS=
+# log levels options: trace debug info warn error critical. Set to info by default
+LOG_LEVEL=
