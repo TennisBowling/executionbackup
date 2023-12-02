@@ -2,7 +2,10 @@ version: "3"
 
 services:
   failover:
-    build: .
+    build:
+      context: .
+      args:
+        - RELEASE_TAG=${RELEASE_TAG}
     restart: unless-stopped
     env_file: .env
     volumes:
