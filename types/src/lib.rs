@@ -318,16 +318,6 @@ pub struct forkchoiceUpdatedResponse {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct getPayloadV2Response {
     pub executionPayload: ExecutionPayload,
+    #[serde(with = "serde_utils::u256_hex_be")]
     pub blockValue: U256,
-}
-
-impl getPayloadV2Response {
-    pub fn from_json(payload: &serde_json::Value) -> Result<Self, Box<dyn Error>> {
-        let executionPayload = ExecutionPayload::from_json(&payload["executionPayload"])?;
-        let blockValue = value_to_u256(&payload["blockValue"])?;
-        Ok(getPayloadV2Response {
-            executionPayload,
-            blockValue,
-        })
-    }
 }

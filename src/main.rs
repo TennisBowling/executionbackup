@@ -87,8 +87,8 @@ fn parse_fcu(result: serde_json::Value) -> Result<forkchoiceUpdatedResponse, Par
     Ok(j)
 }
 
-fn parse_getpayload(result: &serde_json::Value) -> Result<getPayloadV2Response, ParseError> {
-    let j = match getPayloadV2Response::from_json(&result) {
+fn parse_getpayload(result: serde_json::Value) -> Result<getPayloadV2Response, ParseError> {
+    let j = match serde_json::from_value::<getPayloadV2Response>(result) {
         Ok(j) => j,
         Err(e) => {
             tracing::error!("Error deserializing response: {}", e);
@@ -664,7 +664,7 @@ impl NodeRouter {
                             match parse_result(&resp.0) {
                                 Ok(generic_value) => {
 
-                                    match parse_getpayload(&generic_value) {
+                                    match parse_getpayload(generic_value) {
                                         Ok(fcu_res) => {
                                             resps.push(fcu_res);
                                         },
