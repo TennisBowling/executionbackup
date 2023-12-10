@@ -3,12 +3,9 @@
 use ethereum_types::{Address, H256, H64, U256};
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 pub mod keccak;
-use array_bytes::hex_n_into;
-use array_bytes::TryFromHex;
 
-fn value_to_hash(value: &serde_json::Value) -> Result<H256, Box<dyn Error>> {
+/*fn value_to_hash(value: &serde_json::Value) -> Result<H256, Box<dyn Error>> {
     let hex = value.as_str().ok_or("value is not a string")?;
     let hash: H256 = hex_n_into::<_, H256, 32>(hex)
         .map_err(|e| format!("Value is not a valid hex string: {:?}", e))?;
@@ -65,27 +62,15 @@ fn value_to_withdrawls(value: &serde_json::Value) -> Result<Vec<Withdrawal>, Box
         })
         .collect::<Result<Vec<Withdrawal>, Box<dyn Error>>>()?;
     Ok(withdrawals)
-}
-
-/*
-This structure contains the result of processing a payload. The fields are encoded as follows:
-
-status: enum - "VALID" | "INVALID" | "SYNCING" | "ACCEPTED" | "INVALID_BLOCK_HASH"
-latestValidHash: DATA|null, 32 Bytes - the hash of the most recent valid block in the branch defined by payload and its ancestors
-validationError: String|null - a message providing additional details on the validation error if the payload is classified as INVALID or INVALID_BLOCK_HASH.
- */
+} */
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PayloadStatusV1Status {
-    #[serde(rename = "VALID")]
     Valid,
-    #[serde(rename = "INVALID")]
     Invalid,
-    #[serde(rename = "SYNCING")]
     Syncing,
-    #[serde(rename = "ACCEPTED")]
     Accepted,
-    #[serde(rename = "INVALID_BLOCK_HASH")]
     InvalidBlockHash,
 }
 
@@ -116,77 +101,42 @@ impl PayloadStatusV1 {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Withdrawal {
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub index: u64,
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub validator_index: u64,
     pub address: Address,
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionPayload {
     pub parent_hash: H256,
     pub fee_recipient: Address,
     pub state_root: H256,
     pub receipts_root: H256,
+    #[serde(with = "serde_utils::hex_vec")]
     pub logs_bloom: Vec<u8>,
     pub prev_randao: H256,
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub block_number: u64,
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub gas_limit: u64,
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub gas_used: u64,
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
+    #[serde(with = "serde_utils::hex_vec")]
     pub extra_data: Vec<u8>,
+    #[serde(with = "serde_utils::u256_hex_be")]
     pub base_fee_per_gas: U256,
     pub block_hash: H256,
     pub transactions: Vec<Vec<u8>>,
     pub withdrawals: Vec<Withdrawal>,
-}
-
-impl ExecutionPayload {
-    pub fn from_json(payload: &serde_json::Value) -> Result<Self, Box<dyn Error>> {
-        let parent_hash = value_to_hash(&payload["parentHash"])?;
-        let fee_recipient = value_to_address(&payload["feeRecipient"])?.into();
-        let state_root = value_to_hash(&payload["stateRoot"])?;
-        let receipts_root = value_to_hash(&payload["receiptsRoot"])?;
-        let logs_bloom = hex::decode(payload["logsBloom"].as_str().unwrap()[2..].to_string())?;
-        let prev_randao = value_to_hash(&payload["prevRandao"])?;
-        let block_number = value_to_u64(&payload["blockNumber"])?;
-        let gas_limit = value_to_u64(&payload["gasLimit"])?;
-        let gas_used = value_to_u64(&payload["gasUsed"])?;
-        let timestamp = value_to_u64(&payload["timestamp"])?;
-        let extra_data = hex::decode(payload["extraData"].as_str().unwrap()[2..].to_string())?;
-        let base_fee_per_gas = value_to_u256(&payload["baseFeePerGas"])?;
-        let block_hash = value_to_hash(&payload["blockHash"])?;
-        let transactions = payload["transactions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|txn| txn.as_str().unwrap().to_string())
-            .collect::<Vec<String>>()
-            .iter()
-            .map(|txn| txn[2..].to_string())
-            .map(|txn_str| hex::decode(txn_str).unwrap())
-            .collect::<Vec<Vec<u8>>>();
-        let withdrawals = value_to_withdrawls(&payload["withdrawals"])?;
-
-        Ok(ExecutionPayload {
-            parent_hash,
-            fee_recipient,
-            state_root,
-            receipts_root,
-            logs_bloom,
-            prev_randao,
-            block_number,
-            gas_limit,
-            gas_used,
-            timestamp,
-            extra_data,
-            base_fee_per_gas,
-            block_hash,
-            transactions,
-            withdrawals,
-        })
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
