@@ -369,8 +369,8 @@ impl NodeRouter {
 
         let mut alive_but_syncing_nodes = self.alive_but_syncing_nodes.write().await;
         alive_nodes.remove(index);
-        alive_but_syncing_nodes.push(node);
         node.set_online_and_syncing().await;
+        alive_but_syncing_nodes.push(node);
     }
 
     async fn recheck(&self) {
