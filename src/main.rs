@@ -861,11 +861,11 @@ impl NodeRouter {
                 mem::drop(alive_nodes);
 
                 let mut resps_new = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
-                let mut payload_id: Option<[u8; 8]> = None;
+                let mut payload_id: Option<String> = None;
 
                 for resp in resps {
-                    if let Some(inner_payload_id) = resp.payloadId {    // todo: make this look cleaner
-                        payload_id = Some(inner_payload_id);                  // if payloadId is not null, then use that
+                    if let Some(inner_payload_id) = resp.payloadId {    // todo: make this look cleaner. 
+                        payload_id = Some(inner_payload_id);                     // if payloadId is not null, then use that
                     };
                     resps_new.push(resp.payloadStatus);
                 }
