@@ -3,6 +3,7 @@
 use ethereum_types::{Address, H256, H64, U256};
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
+use ssz_types::{VariableList, typenum::{U1073741824, U1048576}};
 pub mod keccak;
 
 /*fn value_to_hash(value: &serde_json::Value) -> Result<H256, Box<dyn Error>> {
@@ -135,7 +136,8 @@ pub struct ExecutionPayload {
     #[serde(with = "serde_utils::u256_hex_be")]
     pub base_fee_per_gas: U256,
     pub block_hash: H256,
-    pub transactions: Vec<Vec<u8>>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
+    pub transactions: VariableList<VariableList<u8, U1073741824>, U1048576>,    // larger one is max bytes per transaction, smaller one is max transactions per payload
     pub withdrawals: Vec<Withdrawal>,
 }
 
