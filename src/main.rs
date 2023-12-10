@@ -6,7 +6,7 @@ use axum::{
     response::IntoResponse,
     Extension, Router,
 };
-use ethereum_types::U256;
+use ethereum_types::{U256, H256};
 use futures::future::join_all;
 use jsonwebtoken::{self, EncodingKey};
 use reqwest::{self, header};
@@ -74,6 +74,18 @@ fn parse_result(resp: &str) -> Result<serde_json::Value, ParseError> {
     };
 
     Ok(result.clone())
+}
+
+fn parse_fcu(result: serde_json::Value) -> Result<forkchoiceUpdatedResponse, ParseError> {
+    let j = match serde_json::from_value::<forkchoiceUpdatedResponse>(result) {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!("Error deserializing response: {}", e);
+            return Err(ParseError::InvalidJson);
+        }
+    };
+
+    Ok(j)
 }
 
 fn make_syncing_str(id: &u64, payload: &serde_json::Value, method: &EngineMethod) -> String {
@@ -332,6 +344,23 @@ impl NodeRouter {
         }
     }
 
+    async fn make_node_syncing(&self, node: Arc<Node>) {
+        let mut alive_nodes = self.alive_nodes.write().await;
+        let index = alive_nodes.iter().position(|x| *x.url == node.url);
+        let index = match index {
+            Some(index) => index,
+            None => {
+                // node is not in alive_nodes, so it's in syncing or worse, stop here
+                return;
+            }
+        };
+
+
+        let mut alive_but_syncing_nodes = self.alive_but_syncing_nodes.write().await;
+        alive_nodes.remove(index);
+        alive_but_syncing_nodes.push(node);
+    }
+
     async fn recheck(&self) {
         // check the status of all nodes
         // order nodes in alive_nodes vector by response time
@@ -588,7 +617,7 @@ impl NodeRouter {
             EngineMethod::engine_getPayloadV1 => {
                 let node = match self.get_execution_node().await {
                     None => {
-                        return (String::from("No nodes available"), 500);
+                        return (make_error(&request.id, "No nodes available"), 500);
                     }
                     Some(node) => node,
                 };
@@ -599,7 +628,12 @@ impl NodeRouter {
                     Ok(resp) => (resp.0, resp.1),
                     Err(e) => {
                         tracing::warn!("engine_getPayloadV1 error: {}", e);
-                        // error as {"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}
+
+                        if e.is_connect() || e.is_timeout() || e.is_request() {
+                            // if the error is a connection error, then we should set the node to syncing
+                            self.make_node_syncing(node.clone()).await;
+                        }
+
                         (make_error(&request.id, &e.to_string()), 200)
                     }
                 }
@@ -611,14 +645,18 @@ impl NodeRouter {
                 let alive_nodes = self.alive_nodes.read().await;
                 for node in alive_nodes.iter() {
                     let resp = node
-                        .do_request_no_timeout(&request, jwt_token.clone())
-                        .await; // no timeout since the CL will just time us out themselves
+                        .do_request(&request, jwt_token.clone())
+                        .await;
                     match resp {
                         Ok(resp) => {
                             resps.push(resp.0.into());
                         }
                         Err(e) => {
                             tracing::error!("engine_getPayloadV2 error: {}", e);
+                            if e.is_connect() || e.is_timeout() || e.is_request() {
+                                // if the error is a connection error, then we should set the node to syncing
+                                self.make_node_syncing(node.clone()).await;
+                            }
                         }
                     }
                 }
@@ -684,7 +722,7 @@ impl NodeRouter {
             }
 
             EngineMethod::engine_newPayloadV1 | EngineMethod::engine_newPayloadV2 => {
-                tracing::debug!("Sending newPayload to alive nodes",);
+                tracing::debug!("Sending newPayload to alive nodes");
                 let mut resps: Vec<String> = Vec::new();
                 let alive_nodes = self.alive_nodes.read().await;
                 for node in alive_nodes.iter() {
@@ -695,6 +733,10 @@ impl NodeRouter {
                         }
                         Err(e) => {
                             tracing::error!("{:?} error: {}", request.method, e);
+                            if e.is_connect() || e.is_timeout() || e.is_request() {
+                                // if the error is a connection error, then we should set the node to syncing
+                                self.make_node_syncing(node.clone()).await;
+                            }
                         }
                     }
                 }
@@ -771,55 +813,63 @@ impl NodeRouter {
 
             EngineMethod::engine_forkchoiceUpdatedV1 | EngineMethod::engine_forkchoiceUpdatedV2 => {
                 tracing::debug!("Sending fcU to alive nodes");
-                let mut resps: Vec<String> = Vec::new();
+                let mut resps: Vec<forkchoiceUpdatedResponse> = Vec::new();
                 let alive_nodes = self.alive_nodes.read().await;
                 for node in alive_nodes.iter() {
                     let resp = node.do_request(request, jwt_token.clone()).await;
                     match resp {
                         Ok(resp) => {
-                            resps.push(resp.0);
+
+                            match parse_result(&resp.0) {
+                                Ok(generic_value) => {
+
+                                    match parse_fcu(generic_value) {
+                                        Ok(fcu_res) => {
+                                            resps.push(fcu_res);
+                                        },
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "Error parsing response for {:?}: {:?}",
+                                                request.method,
+                                                e
+                                            );
+                                            continue;
+                                        },
+                                    }
+
+                                },
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Error parsing response for {:?}: {:?}",
+                                        request.method,
+                                        e
+                                    );
+                                    continue;
+                                },
+                            }
+
                         }
                         Err(e) => {
                             tracing::error!("{:?} error: {}", request.method, e);
+                            if e.is_connect() || e.is_timeout() || e.is_request() {
+                                // if the error is a connection error, then we should set the node to syncing
+                                self.make_node_syncing(node.clone()).await;
+                            }
                         }
                     }
                 }
                 mem::drop(alive_nodes);
 
                 let mut resps_new = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
-                for item in &resps {
-                    let result = parse_result(item);
-                    match result {
-                        Err(e) => {
-                            tracing::error!(
-                                "Error parsing response for {:?}: {:?}",
-                                request.method,
-                                e
-                            );
-                            continue;
-                        }
-                        Ok(result) => {
-                            // the payloadstatus is not the value of the result like for newPayload, but is in result.payloadStatus
+                let mut payload_id: Option<H256> = None;
 
-                            let res: PayloadStatusV1 =
-                                match serde_json::from_value(result["payloadStatus"].clone()) {
-                                    // we need to get first item in the result array
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "Error deserializing response for {:?}: {:?}",
-                                            request.method,
-                                            e
-                                        );
-                                        continue;
-                                    }
-                                    Ok(result) => result,
-                                };
-                            resps_new.push(res);
-                        }
+                for resp in resps {
+                    if let Some(inner_payload_id) = resp.payloadId {    // todo: make this look cleaner
+                        payload_id = Some(inner_payload_id);                  // if payloadId is not null, then use that
                     };
+                    resps_new.push(resp.payloadStatus);
                 }
-                // todo: check if payloadId is not null and return that if fcu_logic returns valid
-
+                
                 let resp = match self.fcu_logic(&resps_new, request, jwt_token).await {
                     Ok(resp) => resp,
                     Err(e) => match e {
@@ -856,13 +906,13 @@ impl NodeRouter {
                     },
                 };
 
-                // return null for payloadId which is next to the payloadStatus todo: make it actually use payloadid
+
                 (
                     make_response(
                         &request.id,
                         json!(forkchoiceUpdatedResponse {
                             payloadStatus: resp,
-                            payloadId: None
+                            payloadId: payload_id,
                         }),
                     ),
                     200,
@@ -897,7 +947,7 @@ impl NodeRouter {
                             {
                                 Ok(_) => {}
                                 Err(e) => {
-                                    tracing::error!("error sending fcU to syncing node: {}", e);
+                                    tracing::error!("error replicating generic engine request to syncing nodes: {}", e);
                                 }
                             };
                         }
