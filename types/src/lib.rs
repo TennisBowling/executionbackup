@@ -115,6 +115,7 @@ impl PayloadStatusV1 {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Withdrawal {
     pub index: u64,
     pub validator_index: u64,
@@ -122,6 +123,7 @@ pub struct Withdrawal {
     pub amount: u64,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct ExecutionPayload {
     pub parent_hash: H256,
     pub fee_recipient: Address,
@@ -311,4 +313,10 @@ impl RpcRequest {
 pub struct forkchoiceUpdatedResponse {
     pub payloadStatus: PayloadStatusV1,
     pub payloadId: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct getPayloadV2Response {
+    pub executionPayload: ExecutionPayload,
+    pub blockValue: U256,
 }

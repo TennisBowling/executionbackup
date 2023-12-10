@@ -1,4 +1,3 @@
-use arcstr::ArcStr;
 use axum::{
     self,
     extract::DefaultBodyLimit,
@@ -6,13 +5,12 @@ use axum::{
     response::IntoResponse,
     Extension, Router,
 };
-use ethereum_types::U256;
 use futures::future::join_all;
 use jsonwebtoken::{self, EncodingKey};
 use reqwest::{self, header};
 use serde_json::json;
-use std::{collections::HashMap, sync::Arc};
-use std::{mem, net::SocketAddr};
+use std::sync::Arc;
+use std::net::SocketAddr;
 use tokio::{sync::RwLock, time::Duration};
 mod verify_hash;
 use lazy_static::lazy_static;
@@ -78,6 +76,18 @@ fn parse_result(resp: &str) -> Result<serde_json::Value, ParseError> {
 
 fn parse_fcu(result: serde_json::Value) -> Result<forkchoiceUpdatedResponse, ParseError> {
     let j = match serde_json::from_value::<forkchoiceUpdatedResponse>(result) {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!("Error deserializing response: {}", e);
+            return Err(ParseError::InvalidJson);
+        }
+    };
+
+    Ok(j)
+}
+
+fn parse_getpayload(result: serde_json::Value) -> Result<getPayloadV2Response, ParseError> {
+    let j = match serde_json::from_value::<getPayloadV2Response>(result) {
         Ok(j) => j,
         Err(e) => {
             tracing::error!("Error deserializing response: {}", e);
@@ -641,7 +651,7 @@ impl NodeRouter {
             EngineMethod::engine_getPayloadV2 => {
                 // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
                 // so we should send this to all the nodes and then return the one with the highest blockValue
-                let mut resps: Vec<ArcStr> = Vec::new();
+                let mut resps: Vec<getPayloadV2Response> = Vec::new();
                 let alive_nodes = self.alive_nodes.read().await;
                 for node in alive_nodes.iter() {
                     let resp = node
@@ -649,10 +659,39 @@ impl NodeRouter {
                         .await;
                     match resp {
                         Ok(resp) => {
-                            resps.push(resp.0.into());
-                        }
+
+                            match parse_result(&resp.0) {
+                                Ok(generic_value) => {
+
+                                    match parse_getpayload(generic_value) {
+                                        Ok(fcu_res) => {
+                                            resps.push(fcu_res);
+                                        },
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "Error parsing response for {:?}: {:?}",
+                                                request.method,
+                                                e
+                                            );
+                                            continue;
+                                        },
+                                    }
+
+                                },
+
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Error parsing response for {:?}: {:?}",
+                                        request.method,
+                                        e
+                                    );
+                                    continue;
+                                },
+                            }
+
+                        },
                         Err(e) => {
-                            tracing::error!("engine_getPayloadV2 error: {}", e);
+                            tracing::error!("{:?} error: {}", request.method, e);
                             if e.is_connect() || e.is_timeout() || e.is_request() {
                                 // if the error is a connection error, then we should set the node to syncing
                                 self.make_node_syncing(node.clone()).await;
@@ -660,66 +699,18 @@ impl NodeRouter {
                         }
                     }
                 }
-                mem::drop(alive_nodes);
-                let mut blocks: HashMap<U256, ArcStr> = HashMap::new();
+                
+                drop(alive_nodes);
 
-                for resp in resps {
-                    let j = match parse_result(&resp) {
-                        Ok(j) => j,
-                        Err(e) => {
-                            tracing::error!(
-                                "engine_getPayloadV2 response has no result field: {:?}",
-                                e
-                            );
-                            continue;
-                        }
-                    };
+                let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.blockValue.cmp(&resp_b.blockValue));
 
-                    let block_value = &j["result"]["blockValue"].as_str();
-                    let block_value = match block_value {
-                        Some(block_value) => block_value,
-                        None => {
-                            // try and extract the error field
-                            let error = &j["error"]["message"].as_str();
-                            match error {
-                                Some(error) => {
-                                    tracing::error!(
-                                        "engine_getPayloadV2 response has error field: {}",
-                                        error
-                                    );
-                                    continue;
-                                }
-                                None => {
-                                    tracing::error!(
-                                        "engine_getPayloadV2 response has no blockValue or error field"
-                                    );
-                                    continue;
-                                }
-                            }
-                        }
-                    };
-
-                    let block_value = U256::from_str_radix(block_value, 16).unwrap();
-                    blocks.insert(block_value, resp);
+                if let Some(most_profitable_payload) = most_profitable {
+                    return (make_response(&request.id, json!(most_profitable_payload)), 200);
                 }
-
-                match blocks.iter().max_by_key(|(k, _v)| *k) {
-                    Some((k, v)) => {
-                        tracing::info!("engine_getPayloadV2: highest blockValue is {}", k);
-                        return (v.to_string(), 200);
-                    }
-                    None => {
-                        tracing::error!("No blocks found in engine_getPayloadV2 responses");
-                        return (
-                            make_error(
-                                &request.id,
-                                "No blocks found in engine_getPayloadV2 responses",
-                            ),
-                            200,
-                        );
-                    }
-                }
-            }
+                
+                // we have no payloads
+                (make_error(&request.id, "No blocks found in engine_getPayloadV2 responses"), 200)
+            },
 
             EngineMethod::engine_newPayloadV1 | EngineMethod::engine_newPayloadV2 => {
                 tracing::debug!("Sending newPayload to alive nodes");
@@ -740,7 +731,7 @@ impl NodeRouter {
                         }
                     }
                 }
-                mem::drop(alive_nodes);
+                drop(alive_nodes);
 
                 let mut resps_new = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
                 for item in &resps {
@@ -858,7 +849,7 @@ impl NodeRouter {
                         }
                     }
                 }
-                mem::drop(alive_nodes);
+                drop(alive_nodes);
 
                 let mut resps_new = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
                 let mut payload_id: Option<String> = None;
