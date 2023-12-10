@@ -5,6 +5,7 @@ use axum::{
     response::IntoResponse,
     Extension, Router,
 };
+use ethereum_types::U256;
 use futures::future::join_all;
 use jsonwebtoken::{self, EncodingKey};
 use reqwest::{self, header};
@@ -701,14 +702,15 @@ impl NodeRouter {
                 }
                 
                 drop(alive_nodes);
-
                 let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.blockValue.cmp(&resp_b.blockValue));
 
                 if let Some(most_profitable_payload) = most_profitable {
+                    tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.blockValue).collect::<Vec<U256>>(), most_profitable_payload.blockValue);
                     return (make_response(&request.id, json!(most_profitable_payload)), 200);
                 }
                 
                 // we have no payloads
+                tracing::warn!("No blocks found in engine_getPayloadV2 responses");
                 (make_error(&request.id, "No blocks found in engine_getPayloadV2 responses"), 200)
             },
 
