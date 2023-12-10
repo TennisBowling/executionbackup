@@ -6,7 +6,7 @@ use axum::{
     response::IntoResponse,
     Extension, Router,
 };
-use ethereum_types::{U256, H256};
+use ethereum_types::U256;
 use futures::future::join_all;
 use jsonwebtoken::{self, EncodingKey};
 use reqwest::{self, header};
@@ -861,7 +861,7 @@ impl NodeRouter {
                 mem::drop(alive_nodes);
 
                 let mut resps_new = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
-                let mut payload_id: Option<H256> = None;
+                let mut payload_id: Option<[u8; 8]> = None;
 
                 for resp in resps {
                     if let Some(inner_payload_id) = resp.payloadId {    // todo: make this look cleaner

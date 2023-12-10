@@ -310,5 +310,5 @@ impl RpcRequest {
 #[derive(Serialize, Deserialize)]
 pub struct forkchoiceUpdatedResponse {
     pub payloadStatus: PayloadStatusV1,
-    pub payloadId: Option<H256>,
+    pub payloadId: Option<[u8; 8]>,
 }
