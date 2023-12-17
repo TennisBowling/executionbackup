@@ -10,15 +10,14 @@ use futures::future::join_all;
 use jsonwebtoken::{self, EncodingKey};
 use reqwest::{self, header};
 use serde_json::json;
-use std::sync::Arc;
-use std::net::SocketAddr;
+use std::{sync::Arc, net::SocketAddr, any::type_name};
 use tokio::{sync::RwLock, time::Duration};
 mod verify_hash;
 use lazy_static::lazy_static;
 use types::*;
 use verify_hash::verify_payload_block_hash;
 
-const VERSION: &str = "1.1.2";
+const VERSION: &str = "1.1.3beta";
 const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
 
 lazy_static! {
@@ -75,30 +74,6 @@ fn parse_result(resp: &str) -> Result<serde_json::Value, ParseError> {
     Ok(result.clone())
 }
 
-fn parse_fcu(result: serde_json::Value) -> Result<forkchoiceUpdatedResponse, ParseError> {
-    let j = match serde_json::from_value::<forkchoiceUpdatedResponse>(result) {
-        Ok(j) => j,
-        Err(e) => {
-            tracing::error!("Error deserializing response: {}", e);
-            return Err(ParseError::InvalidJson);
-        }
-    };
-
-    Ok(j)
-}
-
-fn parse_getpayload(result: serde_json::Value) -> Result<getPayloadV2Response, ParseError> {
-    let j = match serde_json::from_value::<getPayloadV2Response>(result) {
-        Ok(j) => j,
-        Err(e) => {
-            tracing::error!("Error deserializing response: {}", e);
-            return Err(ParseError::InvalidJson);
-        }
-    };
-
-    Ok(j)
-}
-
 fn make_syncing_str(id: &u64, payload: &serde_json::Value, method: &EngineMethod) -> String {
     match method {
         EngineMethod::engine_newPayloadV1 => {
@@ -133,7 +108,6 @@ fn make_syncing_str(id: &u64, payload: &serde_json::Value, method: &EngineMethod
 }
 
 #[derive(Clone)]
-
 pub struct Node
 // represents an EE
 {
@@ -373,6 +347,49 @@ impl NodeRouter {
         alive_but_syncing_nodes.push(node);
     }
 
+    // returns Vec<T> where it tries to deserialize for each resp to T
+    async fn concurrent_requests<T>(&self, request: &RpcRequest, jwt_token: String) -> Vec<T>
+        where T: serde::de::DeserializeOwned {
+        let alive_nodes = self.alive_nodes.read().await;
+        let mut futs = Vec::with_capacity(alive_nodes.len());
+
+        for node in alive_nodes.iter() {
+            futs.push(node.do_request(request, jwt_token.clone()));
+        }
+
+        let mut out = Vec::with_capacity(alive_nodes.capacity());
+        for resp in join_all(futs).await {
+            match resp {
+                Ok(resp) => {   // response from node
+                    let result = match parse_result(&resp.0) {
+                        Ok(result) => result,
+                        Err(e) => {
+                            tracing::error!("Couldn't parse node result for {:?}: {:?}", request.method, e);
+                            continue;
+                        }
+                    };
+
+                    match serde_json::from_value::<T>(result) {
+                        Ok(deserialized) => {
+                            out.push(deserialized);
+                        },
+                        Err(e) => {
+                            tracing::error!("Couldn't deserialize response {:?} from node to type {}: {}", request.method, type_name::<T>(), e);
+                        }
+
+                    }
+
+                },
+                Err(e) => {
+                    tracing::error!("{:?} error: {}", request.method, e);
+                }
+            }
+        }
+
+        out
+
+    }
+
     async fn recheck(&self) {
         // check the status of all nodes
         // order nodes in alive_nodes vector by response time
@@ -608,15 +625,14 @@ impl NodeRouter {
         tokio::spawn(async move {
             let syncing_nodes = syncing_nodes.read().await;
             tracing::debug!("sending fcU to {} syncing nodes", syncing_nodes.len());
+
+            let mut futs = Vec::with_capacity(syncing_nodes.len());
             for node in syncing_nodes.iter() {
-                if let Err(e) = node
-                    .do_request_no_timeout(&req_clone, jwt_token_clone.clone())
-                    .await
-                {
-                    // a lot of these syncing nodes are slow so we dont add a timeout
-                    tracing::error!("error sending fcU to syncing node: {}", e);
-                }
+                futs.push(node.do_request_no_timeout(&req_clone, jwt_token_clone.clone()));
             }
+
+            join_all(futs).await;
+
         });
 
         // majority is checked and either VALID or SYNCING
@@ -649,60 +665,12 @@ impl NodeRouter {
                         (make_error(&request.id, &e.to_string()), 200)
                     }
                 }
-            }
+            },   // getPayloadV1
+
             EngineMethod::engine_getPayloadV2 => {
                 // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
                 // so we should send this to all the nodes and then return the one with the highest blockValue
-                let mut resps: Vec<getPayloadV2Response> = Vec::new();
-                let alive_nodes = self.alive_nodes.read().await;
-                for node in alive_nodes.iter() {
-                    let resp = node
-                        .do_request(&request, jwt_token.clone())
-                        .await;
-                    match resp {
-                        Ok(resp) => {
-
-                            match parse_result(&resp.0) {
-                                Ok(generic_value) => {
-
-                                    match parse_getpayload(generic_value) {
-                                        Ok(fcu_res) => {
-                                            resps.push(fcu_res);
-                                        },
-                                        Err(e) => {
-                                            tracing::error!(
-                                                "Error parsing response for {:?}: {:?}",
-                                                request.method,
-                                                e
-                                            );
-                                            continue;
-                                        },
-                                    }
-
-                                },
-
-                                Err(e) => {
-                                    tracing::error!(
-                                        "Error parsing response for {:?}: {:?}",
-                                        request.method,
-                                        e
-                                    );
-                                    continue;
-                                },
-                            }
-
-                        },
-                        Err(e) => {
-                            tracing::error!("{:?} error: {}", request.method, e);
-                            if e.is_connect() || e.is_timeout() || e.is_request() {
-                                // if the error is a connection error, then we should set the node to syncing
-                                self.make_node_syncing(node.clone()).await;
-                            }
-                        }
-                    }
-                }
-                
-                drop(alive_nodes);
+                let resps: Vec<getPayloadV2Response> = self.concurrent_requests(request, jwt_token).await;
                 let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.blockValue.cmp(&resp_b.blockValue));
 
                 if let Some(most_profitable_payload) = most_profitable {
@@ -713,60 +681,13 @@ impl NodeRouter {
                 // we have no payloads
                 tracing::warn!("No blocks found in engine_getPayloadV2 responses");
                 (make_error(&request.id, "No blocks found in engine_getPayloadV2 responses"), 200)
-            },
+            },      // getPayloadV2
 
             EngineMethod::engine_newPayloadV1 | EngineMethod::engine_newPayloadV2 => {
                 tracing::debug!("Sending newPayload to alive nodes");
-                let mut resps: Vec<String> = Vec::new();
-                let alive_nodes = self.alive_nodes.read().await;
-                for node in alive_nodes.iter() {
-                    let resp = node.do_request(request, jwt_token.clone()).await;
-                    match resp {
-                        Ok(resp) => {
-                            resps.push(resp.0);
-                        }
-                        Err(e) => {
-                            tracing::error!("{:?} error: {}", request.method, e);
-                            if e.is_connect() || e.is_timeout() || e.is_request() {
-                                // if the error is a connection error, then we should set the node to syncing
-                                self.make_node_syncing(node.clone()).await;
-                            }
-                        }
-                    }
-                }
-                drop(alive_nodes);
+                let resps: Vec<PayloadStatusV1> = self.concurrent_requests(request, jwt_token.clone()).await;
 
-                let mut resps_new = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
-                for item in &resps {
-                    let result = parse_result(item);
-                    match result {
-                        Err(e) => {
-                            tracing::error!(
-                                "Error parsing response for {:?}: {:?}",
-                                request.method,
-                                e
-                            );
-                            continue;
-                        }
-                        Ok(result) => {
-                            let res: PayloadStatusV1 = match serde_json::from_value(result) {
-                                // we need to get first item in the result array
-                                Err(e) => {
-                                    tracing::error!(
-                                        "Error deserializing response for {:?}: {:?}",
-                                        request.method,
-                                        e
-                                    );
-                                    continue;
-                                }
-                                Ok(result) => result,
-                            };
-                            resps_new.push(res);
-                        }
-                    };
-                }
-
-                let resp = match self.fcu_logic(&resps_new, request, jwt_token).await {
+                let resp = match self.fcu_logic(&resps, request, jwt_token).await {
                     Ok(resp) => resp,
                     Err(e) => match e {
                         FcuLogicError::NoResponses => {
@@ -802,57 +723,13 @@ impl NodeRouter {
                     },
                 };
 
+                // we have a majority
                 (make_response(&request.id, json!(resp)), 200)
-            }
+            },      // newPayloadV1, V2
 
             EngineMethod::engine_forkchoiceUpdatedV1 | EngineMethod::engine_forkchoiceUpdatedV2 => {
                 tracing::debug!("Sending fcU to alive nodes");
-                let mut resps: Vec<forkchoiceUpdatedResponse> = Vec::new();
-                let alive_nodes = self.alive_nodes.read().await;
-                for node in alive_nodes.iter() {
-                    let resp = node.do_request(request, jwt_token.clone()).await;
-                    match resp {
-                        Ok(resp) => {
-
-                            match parse_result(&resp.0) {
-                                Ok(generic_value) => {
-
-                                    match parse_fcu(generic_value) {
-                                        Ok(fcu_res) => {
-                                            resps.push(fcu_res);
-                                        },
-                                        Err(e) => {
-                                            tracing::error!(
-                                                "Error parsing response for {:?}: {:?}",
-                                                request.method,
-                                                e
-                                            );
-                                            continue;
-                                        },
-                                    }
-
-                                },
-                                Err(e) => {
-                                    tracing::error!(
-                                        "Error parsing response for {:?}: {:?}",
-                                        request.method,
-                                        e
-                                    );
-                                    continue;
-                                },
-                            }
-
-                        }
-                        Err(e) => {
-                            tracing::error!("{:?} error: {}", request.method, e);
-                            if e.is_connect() || e.is_timeout() || e.is_request() {
-                                // if the error is a connection error, then we should set the node to syncing
-                                self.make_node_syncing(node.clone()).await;
-                            }
-                        }
-                    }
-                }
-                drop(alive_nodes);
+                let resps: Vec<forkchoiceUpdatedResponse> = self.concurrent_requests(request, jwt_token.clone()).await;
 
                 let mut resps_new = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
                 let mut payload_id: Option<String> = None;
@@ -901,20 +778,19 @@ impl NodeRouter {
                 };
 
 
-                (
-                    make_response(
-                        &request.id,
+                // we have a majority
+                (make_response(&request.id,
                         json!(forkchoiceUpdatedResponse {
                             payloadStatus: resp,
                             payloadId: payload_id,
-                        }),
-                    ),
+                        }),),
                     200,
                 )
-            }
+            },       // fcU V1, V2
 
             _ => {
                 // wait for primary node's response, but also send to all other nodes
+
                 let primary_node = match self.get_execution_node().await {
                     Some(primary_node) => primary_node,
                     None => {
@@ -928,25 +804,27 @@ impl NodeRouter {
                     .await;
                 tracing::debug!("Sent to primary node: {}", primary_node.url);
 
+
+                // spawn a new task to replicate requests
                 let alive_nodes = self.alive_nodes.clone();
                 let jwt_token = jwt_token.to_owned();
                 let request_clone = request.clone();
                 tokio::spawn(async move {
                     let alive_nodes = alive_nodes.read().await;
+                    let mut futs = Vec::with_capacity(alive_nodes.len());
+
                     for node in alive_nodes.iter() {
                         if node.url != primary_node.url {
-                            match node
-                                .do_request_no_timeout(&request_clone, jwt_token.clone())
-                                .await
-                            {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    tracing::error!("error replicating generic engine request to syncing nodes: {}", e);
-                                }
-                            };
+                            futs.push(node.do_request_no_timeout(&request_clone, jwt_token.clone()));
                         }
                     }
+
+                    join_all(futs).await;
+
                 });
+
+
+                // return resp from primary node
                 match resp {
                     Ok(resp) => (resp.0, resp.1),
                     Err(e) => {
@@ -954,7 +832,8 @@ impl NodeRouter {
                         return (make_error(&request.id, &e.to_string()), 200);
                     }
                 }
-            }
+
+            }   // all other engine requests
         }
     }
 
@@ -980,7 +859,7 @@ impl NodeRouter {
             .await;
         match resp {
             Ok(resp) => (resp.0, resp.1),
-            Err(e) => (make_error(&0, &e.to_string()), 200),
+            Err(e) => (make_error(&1, &e.to_string()), 200),
         }
     }
 }
@@ -1064,7 +943,8 @@ async fn route_all(
             [(header::CONTENT_TYPE, "application/json")],
             resp,
         );
-    } else {
+    }       // engine requests 
+    else {
         tracing::trace!("Routing to normal route");
 
         let jwt_token = headers.get("Authorization");
@@ -1100,7 +980,7 @@ async fn route_all(
             [(header::CONTENT_TYPE, "application/json")],
             resp.to_string(),
         )
-    }
+    }   // all other non-engine requests
 }
 
 #[tokio::main]
