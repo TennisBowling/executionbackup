@@ -6,35 +6,29 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = { version = "0.5.16", features = ["headers"] }
-reqwest = { version = "0.11", features = ["json"] }
-tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
-serde_json = "1.0"
-futures = { version = "0.3"}
-jsonwebtoken = "8"
-serde = {version = "1.0", features = ["derive"] }
-hex = "0.4"
-chrono = "0.4"
+axum = { version = "0.7.2" }
+reqwest = { version = "0.11.22", features = ["json"] }
+tokio = { version = "1.35", features = ["full"] }
+tracing = "0.1.4"
+tracing-subscriber = "0.3.18"
+serde_json = "1.0.108"
+futures = "0.3.29"
+jsonwebtoken = "9.2.0"
+serde = {version = "1.0.193", features = ["derive"] }
+chrono = "0.4.31"
 clap = "2.33.3"
 triehash = "0.8.4"
-hash-db = "0.15.2"
-ethers-core = "1.0.2"
-headers = "0.3"
 rlp = "0.5.2"
 keccak-hash = "0.10.0"
-hash256-std-hasher = "0.15.2"
-metastruct = "0.1.0"
 ethereum-types = "0.14.1"
 types = { path = "types" }
 arcstr = "1.1.5"
 lazy_static = "1.4.0"
-array-bytes = "6.1.0"
+hex = "0.4.3"
+
 
 [workspace]
 members = ["types"]
-
 
 [profile.highperf]
 inherits = "release"

@@ -5,9 +5,9 @@ authors = ["TennisBowling <tennisbowling@tennisbowling.com>"]
 edition = "2021"
 
 [dependencies]
-serde_json = "1.0"
-serde = {version = "1.0", features = ["derive"] }
-hex = "0.4"
+serde_json = "1.0.108"
+serde = {version = "1.0.193", features = ["derive"] }
+hex = "0.4.3"
 hash-db = "0.15.2"
 ethers-core = "1.0.2"
 keccak-hash = "0.10.0"

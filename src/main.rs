@@ -1,14 +1,14 @@
 use axum::{
     self,
     extract::DefaultBodyLimit,
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
-    Extension, Router,
+    http::{HeaderMap, StatusCode, header},
+    Extension, Router, response::IntoResponse,
+    response::Response,
 };
 use ethereum_types::U256;
 use futures::future::join_all;
 use jsonwebtoken::{self, EncodingKey};
-use reqwest::{self, header};
+use reqwest::{self};
 use serde_json::json;
 use std::{sync::Arc, net::SocketAddr, any::type_name};
 use tokio::{sync::RwLock, time::Duration};
@@ -16,6 +16,7 @@ mod verify_hash;
 use lazy_static::lazy_static;
 use types::*;
 use verify_hash::verify_payload_block_hash;
+
 
 const VERSION: &str = "1.1.3beta";
 const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
@@ -866,19 +867,19 @@ impl NodeRouter {
 
 // func to take body and headers from a request and return a string
 async fn route_all(
-    body: String,
     headers: HeaderMap,
     Extension(router): Extension<Arc<NodeRouter>>,
+    body: String,
 ) -> impl IntoResponse {
     let j: serde_json::Value = match serde_json::from_str(&body) {
         Ok(j) => j,
         Err(e) => {
             tracing::error!("Couldn't deserialize request. Error: {}. Body: {}", e, body);
-            return (
-                StatusCode::BAD_REQUEST,
-                [(header::CONTENT_TYPE, "application/json")],
-                make_error(&0, "Couldn't deserialize request body").to_string(),
-            );
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(make_error(&0, "Couldn't deserialize request body").to_string())
+                .unwrap();
         }
     };
 
@@ -886,11 +887,11 @@ async fn route_all(
         Some(meth) => meth,
         None => {
             tracing::error!("Request has no method field");
-            return (
-                StatusCode::BAD_REQUEST,
-                [(header::CONTENT_TYPE, "application/json")],
-                make_error(&0, "Request has no method field").to_string(),
-            );
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(make_error(&0, "Request has no method field").to_string())
+                .unwrap();
         }
     };
 
@@ -903,11 +904,11 @@ async fn route_all(
             Ok(request) => request,
             Err(e) => {
                 tracing::error!("Error deserializing {} request: {}", j["method"], e);
-                return (
-                    StatusCode::BAD_REQUEST,
-                    [(header::CONTENT_TYPE, "application/json")],
-                    make_error(&0, "Error deserializing request").to_string(),
-                );
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(make_error(&0, "Error deserializing request").to_string())
+                    .unwrap();
             }
         };
 
@@ -916,21 +917,20 @@ async fn route_all(
                 Ok(jwt_token) => jwt_token,
                 Err(e) => {
                     tracing::error!("Error while converting jwt token to string: {}", e);
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        [(header::CONTENT_TYPE, "application/json")],
-                        make_error(&request.id, "Error while converting jwt token to string")
-                            .to_string(),
-                    );
+                    return Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(make_error(&0, "Error while converting jwt token to string").to_string())
+                        .unwrap();
                 }
             },
             None => {
                 tracing::error!("Request has no Authorization header");
-                return (
-                    StatusCode::BAD_REQUEST,
-                    [(header::CONTENT_TYPE, "application/json")],
-                    make_error(&request.id, "Request has no Authorization header").to_string(),
-                );
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(make_error(&0, "Request has no Authorization header").to_string())
+                    .unwrap();
             }
         };
 
@@ -938,12 +938,12 @@ async fn route_all(
             .do_engine_route(&request, jwt_token.to_string())
             .await;
 
-        return (
-            StatusCode::from_u16(status).unwrap(),
-            [(header::CONTENT_TYPE, "application/json")],
-            resp,
-        );
-    }       // engine requests 
+        return Response::builder()
+            .status(status)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(resp)
+            .unwrap();
+    }       // engine requests
     else {
         tracing::trace!("Routing to normal route");
 
@@ -952,15 +952,15 @@ async fn route_all(
             let (resp, status) = router
                 .do_route_normal(
                     body,
-                    format!("Bearer {}", make_jwt(&router.jwt_key).unwrap()),
-                )
+                    format!("Bearer {}", make_jwt(&router.jwt_key).unwrap()),   // supporting requests without jwt tokens to authrpc is used for OE.
+                )                                                               // open an issue if you need this to be changed
                 .await;
 
-            return (
-                StatusCode::from_u16(status).unwrap(),
-                [(header::CONTENT_TYPE, "application/json")],
-                resp.to_string(),
-            );
+            return Response::builder()
+                .status(status)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(resp)
+                .unwrap();
         }
 
         let (resp, status) = router
@@ -975,11 +975,11 @@ async fn route_all(
             )
             .await;
 
-        (
-            StatusCode::from_u16(status).unwrap(),
-            [(header::CONTENT_TYPE, "application/json")],
-            resp.to_string(),
-        )
+        return Response::builder()
+            .status(status)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(resp)
+            .unwrap();
     }   // all other non-engine requests
 }
 
@@ -1137,9 +1137,13 @@ async fn main() {
 
     let addr = format!("{}:{}", listen_addr, port);
     let addr: SocketAddr = addr.parse().unwrap();
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::error!("Unable to bind to {}: {}", addr, e);
+            return;
+        }
+    };
     tracing::info!("Listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
