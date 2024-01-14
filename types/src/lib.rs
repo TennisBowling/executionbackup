@@ -5,65 +5,7 @@ use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
 use ssz_types::{VariableList, typenum::{U1073741824, U1048576}};
 pub mod keccak;
-
-/*fn value_to_hash(value: &serde_json::Value) -> Result<H256, Box<dyn Error>> {
-    let hex = value.as_str().ok_or("value is not a string")?;
-    let hash: H256 = hex_n_into::<_, H256, 32>(hex)
-        .map_err(|e| format!("Value is not a valid hex string: {:?}", e))?;
-    Ok(hash)
-}
-
-fn value_to_address(value: &serde_json::Value) -> Result<Address, Box<dyn Error>> {
-    let hex = value.as_str().ok_or("value is not a string")?;
-    let address: Address = hex_n_into::<_, Address, 20>(hex)
-        .map_err(|e| format!("Value is not a valid hex string: {:?}", e))?;
-    Ok(address)
-}
-
-fn value_to_u256(value: &serde_json::Value) -> Result<U256, Box<dyn Error>> {
-    let hex = value.as_str().ok_or("value is not a string")?;
-    let mut padded_hex = hex.to_string();
-
-    if padded_hex.starts_with("0x") {
-        padded_hex = padded_hex[2..].to_string();
-    }
-
-    // pad the string with leading zeros to make it 64 characters
-    let padding_len = 64 - padded_hex.len();
-    let padding = "0".repeat(padding_len);
-    padded_hex = padding + &padded_hex;
-
-    let num: U256 = array_bytes::hex_n_into::<_, U256, 32>(padded_hex)
-        .map_err(|e| format!("Value is not a valid hex string: {:?}", e))?;
-    Ok(num)
-}
-
-fn value_to_u64(value: &serde_json::Value) -> Result<u64, Box<dyn Error>> {
-    let hex = value.as_str().ok_or("value is not a string")?;
-    let num: u64 =
-        u64::try_from_hex(hex).map_err(|e| format!("Value is not a valid hex string: {:?}", e))?;
-    Ok(num)
-}
-
-fn value_to_withdrawls(value: &serde_json::Value) -> Result<Vec<Withdrawal>, Box<dyn Error>> {
-    let withdrawals = value.as_array().ok_or("value is not an array")?;
-    let withdrawals = withdrawals
-        .iter()
-        .map(|withdrawal| {
-            let index = value_to_u64(&withdrawal["index"])?;
-            let validator_index = value_to_u64(&withdrawal["validatorIndex"])?;
-            let address = value_to_address(&withdrawal["address"])?;
-            let amount = value_to_u64(&withdrawal["amount"])?;
-            Ok(Withdrawal {
-                index,
-                validator_index,
-                address,
-                amount,
-            })
-        })
-        .collect::<Result<Vec<Withdrawal>, Box<dyn Error>>>()?;
-    Ok(withdrawals)
-} */
+use superstruct::superstruct;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -104,41 +46,63 @@ impl PayloadStatusV1 {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Withdrawal {
-    #[serde(with = "serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
-    #[serde(with = "serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub address: Address,
-    #[serde(with = "serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub amount: u64,
 }
 
+
+#[superstruct(variants(Shanghai, Cancun), variant_attributes(derive(Serialize, Deserialize, Clone)))]
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionPayload {
+    #[superstruct(getter(copy))]
     pub parent_hash: H256,
+    #[superstruct(getter(copy))]
     pub fee_recipient: Address,
+    #[superstruct(getter(copy))]
     pub state_root: H256,
+    #[superstruct(getter(copy))]
     pub receipts_root: H256,
     #[serde(with = "serde_utils::hex_vec")]
     pub logs_bloom: Vec<u8>,
+    #[superstruct(getter(copy))]
     pub prev_randao: H256,
-    #[serde(with = "serde_utils::u64_hex_be")]
+    #[superstruct(getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub block_number: u64,
-    #[serde(with = "serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    #[superstruct(getter(copy))]
     pub gas_limit: u64,
-    #[serde(with = "serde_utils::u64_hex_be")]
+    #[superstruct(getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub gas_used: u64,
-    #[serde(with = "serde_utils::u64_hex_be")]
+    #[superstruct(getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub timestamp: u64,
     #[serde(with = "serde_utils::hex_vec")]
     pub extra_data: Vec<u8>,
+    #[superstruct(getter(copy))]
     #[serde(with = "serde_utils::u256_hex_be")]
     pub base_fee_per_gas: U256,
+    #[superstruct(getter(copy))]
     pub block_hash: H256,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: VariableList<VariableList<u8, U1073741824>, U1048576>,    // larger one is max bytes per transaction, smaller one is max transactions per payload
+    #[superstruct(only(Shanghai))]
     pub withdrawals: Vec<Withdrawal>,
+    #[superstruct(getter(copy))]
+    #[superstruct(only(Shanghai, Cancun))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub blob_gas_used: u64,
+    #[superstruct(getter(copy))]
+    #[superstruct(only(Shanghai, Cancun))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub excess_blob_gas: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -172,23 +136,24 @@ impl ExecutionBlockHeader {
     ) -> Self {
         // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
         // defined in EIP-4399.
+
         ExecutionBlockHeader {
-            parent_hash: payload.parent_hash,
+            parent_hash: payload.parent_hash(),
             ommers_hash: rlp_empty_list_root,
-            beneficiary: payload.fee_recipient,
-            state_root: payload.state_root,
+            beneficiary: payload.fee_recipient(),
+            state_root: payload.state_root(),
             transactions_root: rlp_transactions_root,
-            receipts_root: payload.receipts_root,
-            logs_bloom: payload.logs_bloom.clone(),
+            receipts_root: payload.receipts_root(),
+            logs_bloom: payload.logs_bloom().clone(),
             difficulty: U256::zero(),
-            number: payload.block_number.into(),
-            gas_limit: payload.gas_limit.into(),
-            gas_used: payload.gas_used.into(),
-            timestamp: payload.timestamp,
-            extra_data: payload.extra_data.clone(),
-            mix_hash: payload.prev_randao,
+            number: payload.block_number().into(),
+            gas_limit: payload.gas_limit().into(),
+            gas_used: payload.gas_used().into(),
+            timestamp: payload.timestamp(),
+            extra_data: payload.extra_data().clone(),
+            mix_hash: payload.prev_randao(),
             nonce: H64::zero(),
-            base_fee_per_gas: payload.base_fee_per_gas,
+            base_fee_per_gas: payload.base_fee_per_gas(),
             withdrawals_root: rlp_withdrawals_root,
         }
     }
@@ -244,6 +209,10 @@ pub enum EngineMethod {
     engine_getPayloadV2,
     engine_getPayloadBodiesByHashV1,
     engine_getPayloadBodiesByRangeV1,
+    engine_newPayloadV3,
+    engine_forkchoiceUpdatedV3,
+    engine_getPayloadV3,
+    
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -267,9 +236,17 @@ pub struct forkchoiceUpdatedResponse {
     pub payloadId: Option<String>,
 }
 
+#[superstruct(variants(Cancun), variant_attributes(derive(Serialize, Deserialize, Clone)))]
 #[derive(Serialize, Deserialize, Clone)]
-pub struct getPayloadV2Response {
-    pub executionPayload: ExecutionPayload,
+#[serde(rename_all = "camelCase")]
+pub struct getPayloadResponse {
+    pub execution_payload: ExecutionPayload,
     #[serde(with = "serde_utils::u256_hex_be")]
-    pub blockValue: U256,
+    #[superstruct(getter(copy))]
+    pub block_value: U256,
+    #[superstruct(only(Cancun))]
+    blobs_bundle: serde_json::Value,
+    #[superstruct(only(Cancun))]
+    #[superstruct(getter(copy))]
+    pub should_override_builder: bool
 }

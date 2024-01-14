@@ -23,8 +23,11 @@ const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS25
 
 lazy_static! {
     static ref TIMEOUT: Duration = {
-        let dur = Duration::from_millis(7500);
-        dur
+        Duration::from_millis(7500)
+    };
+
+    static ref JWT_HEADER: jsonwebtoken::Header = {
+        jsonwebtoken::Header::new(DEFAULT_ALGORITHM)
     };
 }
 
@@ -33,7 +36,7 @@ fn make_jwt(jwt_key: &jsonwebtoken::EncodingKey) -> Result<String, jsonwebtoken:
         iat: chrono::Utc::now().timestamp(),
     };
     jsonwebtoken::encode(
-        &jsonwebtoken::Header::new(DEFAULT_ALGORITHM),
+        &JWT_HEADER,
         &claim_inst,
         jwt_key,
     )
@@ -56,12 +59,9 @@ fn parse_result(resp: &str) -> Result<serde_json::Value, ParseError> {
         }
     };
 
-    match j.get("error") {
-        Some(error) => {
-            tracing::error!("Response has error field: {}", error);
-            return Err(ParseError::ElError);
-        }
-        None => {}
+    if let Some(error)= j.get("error") {
+        tracing::error!("Response has error field: {}", error);
+        return Err(ParseError::ElError);
     }
 
     let result = match j.get("result") {
@@ -99,13 +99,13 @@ fn make_syncing_str(id: &u64, payload: &serde_json::Value, method: &EngineMethod
                 "Execution payload blockhash {} verified. Returning SYNCING",
                 payload["blockHash"]
             );
-            return json!({"jsonrpc":"2.0","id":id,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null}},"payloadId":null}).to_string()
+            json!({"jsonrpc":"2.0","id":id,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null}},"payloadId":null}).to_string()
         },
 
         _ => {
-            return json!({"jsonrpc":"2.0","id":id,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null}},"payloadId":null}).to_string()
+            json!({"jsonrpc":"2.0","id":id,"result":{"payloadStatus":{"status":"SYNCING","latestValidHash":null,"validationError":null}},"payloadId":null}).to_string()
         }
-    };
+    }
 }
 
 #[derive(Clone)]
@@ -507,14 +507,14 @@ impl NodeRouter {
             let alive_but_syncing_nodes = self.alive_but_syncing_nodes.read().await;
             if alive_but_syncing_nodes.is_empty() {
                 // no synced or syncing nodes, so return None
-                return None;
+                None
             } else {
                 // no synced nodes, but there are syncing nodes, so return the first syncing node
 
                 let node = alive_but_syncing_nodes[0].clone();
                 let mut primary_node = self.primary_node.write().await;
                 *primary_node = node.clone();
-                return Some(node);
+                Some(node)
             }
         } else {
             // there are synced nodes, so return the synced node (making sure its not the already checked primary node)
@@ -530,14 +530,14 @@ impl NodeRouter {
             let alive_but_syncing_nodes = self.alive_but_syncing_nodes.read().await;
             if alive_but_syncing_nodes.is_empty() {
                 // no synced or syncing nodes, so return None
-                return None;
+                None
             } else {
                 // no synced nodes, but there are syncing nodes, so return the first syncing node
 
                 let node = alive_but_syncing_nodes[0].clone();
                 let mut primary_node = self.primary_node.write().await;
                 *primary_node = node.clone();
-                return Some(node);
+                Some(node)
             }
         }
     }
@@ -572,7 +572,7 @@ impl NodeRouter {
 
         // Check if the majority count is greater than or equal to the required count
         if max_count >= majority_count {
-            return majority_response.cloned().cloned();
+            majority_response.cloned().cloned()
         } else {
             None
         }
@@ -625,7 +625,7 @@ impl NodeRouter {
         let req_clone = req.clone();
         tokio::spawn(async move {
             let syncing_nodes = syncing_nodes.read().await;
-            tracing::debug!("sending fcU to {} syncing nodes", syncing_nodes.len());
+            tracing::debug!("sending fcU or newPayload to {} syncing nodes", syncing_nodes.len());
 
             let mut futs = Vec::with_capacity(syncing_nodes.len());
             for node in syncing_nodes.iter() {
@@ -671,11 +671,11 @@ impl NodeRouter {
             EngineMethod::engine_getPayloadV2 => {
                 // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
                 // so we should send this to all the nodes and then return the one with the highest blockValue
-                let resps: Vec<getPayloadV2Response> = self.concurrent_requests(request, jwt_token).await;
-                let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.blockValue.cmp(&resp_b.blockValue));
+                let resps: Vec<getPayloadResponse> = self.concurrent_requests(request, jwt_token).await;
+                let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.block_value().cmp(&resp_b.block_value()));
 
                 if let Some(most_profitable_payload) = most_profitable {
-                    tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.blockValue).collect::<Vec<U256>>(), most_profitable_payload.blockValue);
+                    tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.block_value()).collect::<Vec<U256>>(), most_profitable_payload.block_value());
                     return (make_response(&request.id, json!(most_profitable_payload)), 200);
                 }
                 
@@ -737,7 +737,7 @@ impl NodeRouter {
 
                 for resp in resps {
                     if let Some(inner_payload_id) = resp.payloadId {    // todo: make this look cleaner. 
-                        payload_id = Some(inner_payload_id);                     // if payloadId is not null, then use that
+                        payload_id = Some(inner_payload_id);                     // if payloadId is not null, then use that. all resps will have the same payloadId
                     };
                     resps_new.push(resp.payloadStatus);
                 }
@@ -830,7 +830,7 @@ impl NodeRouter {
                     Ok(resp) => (resp.0, resp.1),
                     Err(e) => {
                         tracing::warn!("Error from primary node: {}", e);
-                        return (make_error(&request.id, &e.to_string()), 200);
+                        (make_error(&request.id, &e.to_string()), 200)
                     }
                 }
 
@@ -938,11 +938,11 @@ async fn route_all(
             .do_engine_route(&request, jwt_token.to_string())
             .await;
 
-        return Response::builder()
+        Response::builder()
             .status(status)
             .header(header::CONTENT_TYPE, "application/json")
             .body(resp)
-            .unwrap();
+            .unwrap()
     }       // engine requests
     else {
         tracing::trace!("Routing to normal route");
@@ -975,11 +975,11 @@ async fn route_all(
             )
             .await;
 
-        return Response::builder()
+        Response::builder()
             .status(status)
             .header(header::CONTENT_TYPE, "application/json")
             .body(resp)
-            .unwrap();
+            .unwrap()
     }   // all other non-engine requests
 }
 
@@ -1080,7 +1080,7 @@ async fn main() {
     let fcu_majority = fcu_majority.parse::<f32>();
     let fcu_majority = match fcu_majority {
         Ok(fcu_majority) => {
-            if fcu_majority < 0.0 || fcu_majority > 1.0 {
+            if !(0.0..=1.0).contains(&fcu_majority) {
                 tracing::error!("fcu majority must be between 0.0 and 1.0");
                 return;
             }

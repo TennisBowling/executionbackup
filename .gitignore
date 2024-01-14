@@ -19,4 +19,4 @@ Cargo.lock
 .env
 .jwt
 
-jwt.txt
+*jwt*
