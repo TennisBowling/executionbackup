@@ -175,6 +175,7 @@ impl Node {
             .timeout(*TIMEOUT)
             .send()
             .await;
+        let resp_time = start.elapsed().as_micros();
         let resp: reqwest::Response = match resp {
             Ok(resp) => resp,
             Err(e) => {
@@ -184,7 +185,7 @@ impl Node {
             }
         };
 
-        let resp_time = start.elapsed().as_millis();
+        
 
         // deserialize the json response.
         // result = false means node is online and not syncing
