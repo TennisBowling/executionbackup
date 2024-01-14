@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
+use std::collections::HashMap;
+
 use ethereum_types::{Address, H256, H64, U256};
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
@@ -197,6 +199,11 @@ pub struct NodeHealth {
     pub resp_time: u128,
 }
 
+pub struct NodeTiming {
+    pub node: String,
+    pub resp_time: u128,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum EngineMethod {
     engine_newPayloadV1,
@@ -249,4 +256,13 @@ pub struct getPayloadResponse {
     #[superstruct(only(Cancun))]
     #[superstruct(getter(copy))]
     pub should_override_builder: bool
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MetricsReport {
+    pub response_times: HashMap<String, u128>,
+    pub alive_nodes: Vec<String>,
+    pub syncing_nodes: Vec<String>,
+    pub dead_nodes: Vec<String>,
+    pub primary_node: String,
 }

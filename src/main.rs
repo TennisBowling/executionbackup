@@ -10,7 +10,7 @@ use futures::future::join_all;
 use jsonwebtoken::{self, EncodingKey};
 use reqwest::{self};
 use serde_json::json;
-use std::{sync::Arc, net::SocketAddr, any::type_name};
+use std::{sync::Arc, net::SocketAddr, any::type_name, collections::HashMap};
 use tokio::{sync::RwLock, time::Duration};
 mod verify_hash;
 use lazy_static::lazy_static;
@@ -552,8 +552,8 @@ impl NodeRouter {
         let majority_count = (total_responses as f32 * self.majority_percentage) as usize;
 
         // Create a hashmap to store response frequencies
-        let mut response_counts: std::collections::HashMap<&PayloadStatusV1, usize> =
-            std::collections::HashMap::new();
+        let mut response_counts: HashMap<&PayloadStatusV1, usize> =
+            HashMap::new();
 
         for response in results.iter() {
             *response_counts.entry(response).or_insert(0) += 1;
@@ -983,6 +983,49 @@ async fn route_all(
     }   // all other non-engine requests
 }
 
+async fn metrics(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResponse {
+    // report back everything we can
+    let syncing_nodes = router.alive_but_syncing_nodes.read().await;
+    let alive_nodes = router.alive_nodes.read().await;
+    let mut both = syncing_nodes.clone();
+    both.append(&mut alive_nodes.clone());
+    drop(alive_nodes);
+    drop(syncing_nodes);
+
+    
+    let mut futs = Vec::new();
+    both.iter().for_each(|node| futs.push(async move {(node.url.clone(), node.status.read().await.resp_time)}));
+
+    
+    let resp_times: HashMap<String, u128> = join_all(futs).await.into_iter().collect();
+    let dead_nodes = router.dead_nodes.read().await;
+
+
+    let metrics_report = MetricsReport{
+        response_times: resp_times,
+        alive_nodes: router.alive_nodes.read().await.iter().map(|node| node.url.clone()).collect(),
+        syncing_nodes: router.alive_but_syncing_nodes.read().await.iter().map(|node| node.url.clone()).collect(),
+        dead_nodes: dead_nodes.iter().map(|node| node.url.clone()).collect(),
+        primary_node: router.primary_node.read().await.url.clone(),
+    };
+
+
+    let resp_body = match serde_json::to_string(&metrics_report) {
+        Ok(resp_body) => resp_body,
+        Err(e) => {
+            tracing::error!("Unable to serialize metrics report: {}", e);
+            r#"{"error":"Unable to serialize metrics report"}"#.to_string()
+        }
+    };
+
+    Response::builder()
+        .status(200)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(resp_body)
+        .unwrap()
+
+}
+
 #[tokio::main]
 async fn main() {
     let matches = clap::App::new("executionbackup")
@@ -1132,6 +1175,7 @@ async fn main() {
     // setup axum server
     let app = Router::new()
         .route("/", axum::routing::post(route_all))
+        .route("/metrics", axum::routing::get(metrics))
         .layer(Extension(router.clone()))
         .layer(DefaultBodyLimit::disable()); // no body limit since some requests can be quite large
 
