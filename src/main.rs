@@ -171,6 +171,7 @@ impl Node {
             .client
             .post(self.url.clone())
             .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
             .json(&json!({"jsonrpc": "2.0", "method": "eth_syncing", "params": [], "id": 1}))
             .timeout(*TIMEOUT)
             .send()
@@ -184,7 +185,6 @@ impl Node {
                 return Err(e);
             }
         };
-
         
 
         // deserialize the json response.
@@ -192,6 +192,7 @@ impl Node {
         // result = an object means node is syncing
         let json_body: serde_json::Value = resp.json().await?;
         let result = &json_body["result"];
+        tracing::info!("result: {:?}", result);
 
         if result.is_boolean() {
             if !result.as_bool().unwrap() {
@@ -409,13 +410,23 @@ impl NodeRouter {
             let check = async move {
                 match node_clone.check_status(jwt_key_clone).await {
                     Ok(status) => (status, node_clone.clone()),
-                    Err(_) => (
-                        NodeHealth {
-                            status: SyncingStatus::Offline,
-                            resp_time: 0,
-                        },
-                        node_clone.clone(),
-                    ),
+                    Err(e) => {
+                        if e.is_decode() {
+                            tracing::error!("Error while checking node {}: {}; Maybe jwt related?", node_clone.url, e);
+                        }
+                        else {
+                            tracing::error!("Error while checking node {}: {}", node_clone.url, e);
+                        }
+                        
+                        (
+                            NodeHealth {
+                                status: SyncingStatus::Offline,
+                                resp_time: 0,
+                            },
+                            node_clone.clone(),
+                        )
+                    }
+                    
                 }
             };
             checks.push(check);
@@ -428,16 +439,19 @@ impl NodeRouter {
                 new_alive_nodes.push((status.resp_time, node.clone()));
 
                 if self.node_timings_enabled {
-                    tracing::info!("{}: {}ms", node.url, status.resp_time);
+                    tracing::info!("{}: {}ms", node.url, (status.resp_time/1000));  // resp_time is in micros
                 }
             } else if status.status == SyncingStatus::OnlineAndSyncing {
                 new_alive_but_syncing_nodes.push(node.clone());
 
                 if self.node_timings_enabled {
-                    tracing::info!("{}: {}ms", node.url, status.resp_time);
+                    tracing::info!("{}: {}ms", node.url, (status.resp_time/1000));
                 }
             } else {
                 new_dead_nodes.push(node.clone());
+                if self.node_timings_enabled {
+                    tracing::warn!("Dead node: {}", node.url);
+                }
             }
         }
 
