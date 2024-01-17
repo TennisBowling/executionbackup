@@ -192,7 +192,6 @@ impl Node {
         // result = an object means node is syncing
         let json_body: serde_json::Value = resp.json().await?;
         let result = &json_body["result"];
-        tracing::info!("result: {:?}", result);
 
         if result.is_boolean() {
             if !result.as_bool().unwrap() {
@@ -439,13 +438,13 @@ impl NodeRouter {
                 new_alive_nodes.push((status.resp_time, node.clone()));
 
                 if self.node_timings_enabled {
-                    tracing::info!("{}: {}ms", node.url, (status.resp_time/1000));  // resp_time is in micros
+                    tracing::info!("{}: {:.2}ms", node.url, (status.resp_time as f64 / 1000.0));  // resp_time is in micros
                 }
             } else if status.status == SyncingStatus::OnlineAndSyncing {
                 new_alive_but_syncing_nodes.push(node.clone());
 
                 if self.node_timings_enabled {
-                    tracing::info!("{}: {}ms", node.url, (status.resp_time/1000));
+                    tracing::info!("{}: {:.2}ms", node.url, (status.resp_time as f64 / 1000.0));
                 }
             } else {
                 new_dead_nodes.push(node.clone());
