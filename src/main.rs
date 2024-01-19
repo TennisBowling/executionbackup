@@ -134,30 +134,31 @@ impl Node {
         let status = self.status.read().await;
         if status.status != SyncingStatus::Synced {
             tracing::info!("Node {} is synced", self.url);
+            drop(status);
+            let mut status = self.status.write().await;
+            status.status = SyncingStatus::Synced;
         }
-        drop(status);
-        let mut status = self.status.write().await;
-        status.status = SyncingStatus::Synced;
+        // it's already set as synced
     }
 
     async fn set_offline(&self) {
         let status = self.status.read().await;
         if status.status != SyncingStatus::Offline {
             tracing::warn!("Node {} is offline", self.url);
+            drop(status);
+            let mut status = self.status.write().await;
+            status.status = SyncingStatus::Offline;
         }
-        drop(status);
-        let mut status = self.status.write().await;
-        status.status = SyncingStatus::Offline;
     }
 
     async fn set_online_and_syncing(&self) {
         let status = self.status.read().await;
         if status.status != SyncingStatus::OnlineAndSyncing {
             tracing::info!("Node {} is online and syncing", self.url);
+            drop(status);
+            let mut status = self.status.write().await;
+            status.status = SyncingStatus::OnlineAndSyncing;
         }
-        drop(status);
-        let mut status = self.status.write().await;
-        status.status = SyncingStatus::OnlineAndSyncing;
     }
 
     async fn check_status(
@@ -181,7 +182,6 @@ impl Node {
             Ok(resp) => resp,
             Err(e) => {
                 self.set_offline().await;
-                tracing::error!("Error while checking status of node {}: {}", self.url, e);
                 return Err(e);
             }
         };
@@ -997,8 +997,7 @@ async fn route_all(
     }   // all other non-engine requests
 }
 
-async fn metrics(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResponse {
-    // report back everything we can
+async fn make_metrics_report(router: Arc<NodeRouter>) -> Result<serde_json::Value, serde_json::Error> {
     let syncing_nodes = router.alive_but_syncing_nodes.read().await;
     let alive_nodes = router.alive_nodes.read().await;
     let mut both = syncing_nodes.clone();
@@ -1010,21 +1009,30 @@ async fn metrics(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResp
     let mut futs = Vec::new();
     both.iter().for_each(|node| futs.push(async move {(node.url.clone(), node.status.read().await.resp_time)}));
 
-    
     let resp_times: HashMap<String, u128> = join_all(futs).await.into_iter().collect();
-    let dead_nodes = router.dead_nodes.read().await;
 
 
     let metrics_report = MetricsReport{
         response_times: resp_times,
         alive_nodes: router.alive_nodes.read().await.iter().map(|node| node.url.clone()).collect(),
         syncing_nodes: router.alive_but_syncing_nodes.read().await.iter().map(|node| node.url.clone()).collect(),
-        dead_nodes: dead_nodes.iter().map(|node| node.url.clone()).collect(),
+        dead_nodes: router.dead_nodes.read().await.iter().map(|node| node.url.clone()).collect(),
         primary_node: router.primary_node.read().await.url.clone(),
     };
 
+    serde_json::to_value(&metrics_report)
+}
 
-    let resp_body = match serde_json::to_string(&metrics_report) {
+async fn metrics(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResponse {
+    let report = match make_metrics_report(router).await {
+        Ok(report) => report,
+        Err(e) => {
+            tracing::error!("Could not make metrics report: {}", e);
+            json!({"error": format!("Could not make metrics report: {}", e)})
+        }
+    };
+
+    let resp_body = match serde_json::to_string(&report) {
         Ok(resp_body) => resp_body,
         Err(e) => {
             tracing::error!("Unable to serialize metrics report: {}", e);
@@ -1038,6 +1046,42 @@ async fn metrics(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResp
         .body(resp_body)
         .unwrap()
 
+}
+
+// calls recheck, returns recheck time, and metrics
+async fn recheck(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+    router.recheck().await;
+    let resp_time = start.elapsed().as_micros();
+
+    let mut report = match make_metrics_report(router).await {
+        Ok(report) => report,
+        Err(e) => {
+            tracing::error!("Unable to get metrics report: {}", e);
+            return Response::builder()
+                .status(500)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(r#"{"error":"Unable to get metrics report; Recheck succeeded."}"#.to_string())
+                .unwrap()
+        }
+    };
+
+    report["recheck_time"] = serde_json::to_value(resp_time).unwrap();
+
+    let resp_body = match serde_json::to_string(&report) {
+        Ok(resp_body) => resp_body,
+        Err(e) => {
+            tracing::error!("Unable to serialize metrics report: {}", e);
+            r#"{"error":"Unable to serialize metrics report"}"#.to_string()
+        }
+    };
+    
+    return Response::builder()
+        .status(200)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(resp_body)
+        .unwrap()
+    
 }
 
 #[tokio::main]
@@ -1190,6 +1234,7 @@ async fn main() {
     let app = Router::new()
         .route("/", axum::routing::post(route_all))
         .route("/metrics", axum::routing::get(metrics))
+        .route("/recheck", axum::routing::get(recheck))
         .layer(Extension(router.clone()))
         .layer(DefaultBodyLimit::disable()); // no body limit since some requests can be quite large
 
