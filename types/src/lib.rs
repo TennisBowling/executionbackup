@@ -48,19 +48,20 @@ impl PayloadStatusV1 {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Withdrawal {
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub index: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub validator_index: u64,
     pub address: Address,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
 }
 
 
-#[superstruct(variants(Shanghai, Cancun), variant_attributes(derive(Serialize, Deserialize, Clone)))]
+#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+#[serde(untagged)]
 pub struct ExecutionPayload {
     #[superstruct(getter(copy))]
     pub parent_hash: H256,
@@ -75,16 +76,16 @@ pub struct ExecutionPayload {
     #[superstruct(getter(copy))]
     pub prev_randao: H256,
     #[superstruct(getter(copy))]
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub block_number: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     #[superstruct(getter(copy))]
     pub gas_limit: u64,
     #[superstruct(getter(copy))]
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub gas_used: u64,
     #[superstruct(getter(copy))]
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
     #[serde(with = "serde_utils::hex_vec")]
     pub extra_data: Vec<u8>,
@@ -95,15 +96,13 @@ pub struct ExecutionPayload {
     pub block_hash: H256,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: VariableList<VariableList<u8, U1073741824>, U1048576>,    // larger one is max bytes per transaction, smaller one is max transactions per payload
-    #[superstruct(only(Shanghai))]
+    #[superstruct(only(V2, V3))]
     pub withdrawals: Vec<Withdrawal>,
-    #[superstruct(getter(copy))]
-    #[superstruct(only(Shanghai, Cancun))]
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[superstruct(only(V3), partial_getter(copy))]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(getter(copy))]
-    #[superstruct(only(Shanghai, Cancun))]
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[superstruct(only(V3), partial_getter(copy))]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
 }
 
@@ -243,18 +242,23 @@ pub struct forkchoiceUpdatedResponse {
     pub payloadId: Option<String>,
 }
 
-#[superstruct(variants(Cancun), variant_attributes(derive(Serialize, Deserialize, Clone)))]
+#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+#[serde(untagged)]
 pub struct getPayloadResponse {
-    pub execution_payload: ExecutionPayload,
+    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
+    pub execution_payload: ExecutionPayloadV1,
+    #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
+    pub execution_payload: ExecutionPayloadV2,
+    #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
+    pub execution_payload: ExecutionPayloadV3,
     #[serde(with = "serde_utils::u256_hex_be")]
     #[superstruct(getter(copy))]
     pub block_value: U256,
-    #[superstruct(only(Cancun))]
-    blobs_bundle: serde_json::Value,
-    #[superstruct(only(Cancun))]
-    #[superstruct(getter(copy))]
+    #[superstruct(only(V3))]
+    pub blobs_bundle: serde_json::Value,
+    #[superstruct(only(V3), partial_getter(copy))]
     pub should_override_builder: bool
 }
 

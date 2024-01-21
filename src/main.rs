@@ -355,12 +355,14 @@ impl NodeRouter {
         let alive_nodes = self.alive_nodes.read().await;
         let mut futs = Vec::with_capacity(alive_nodes.len());
 
-        for node in alive_nodes.iter() {
-            futs.push(node.do_request(request, jwt_token.clone()));
-        }
+        alive_nodes.iter().for_each(|node| futs.push(node.do_request(request, jwt_token.clone())));
+        
 
-        let mut out = Vec::with_capacity(alive_nodes.capacity());
-        for resp in join_all(futs).await {
+        let mut out = Vec::with_capacity(alive_nodes.len());
+        let completed = join_all(futs).await;
+        drop(alive_nodes);
+
+        for resp in completed {
             match resp {
                 Ok(resp) => {   // response from node
                     let result = match parse_result(&resp.0) {
@@ -371,6 +373,7 @@ impl NodeRouter {
                         }
                     };
 
+                    
                     match serde_json::from_value::<T>(result) {
                         Ok(deserialized) => {
                             out.push(deserialized);
@@ -1019,6 +1022,7 @@ async fn make_metrics_report(router: Arc<NodeRouter>) -> Result<serde_json::Valu
         dead_nodes: router.dead_nodes.read().await.iter().map(|node| node.url.clone()).collect(),
         primary_node: router.primary_node.read().await.url.clone(),
     };
+    
 
     serde_json::to_value(&metrics_report)
 }
