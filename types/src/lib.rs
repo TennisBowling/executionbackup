@@ -57,7 +57,7 @@ pub struct Withdrawal {
 }
 
 
-#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase", deny_unknown_fields)))]
+#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", untagged, deny_unknown_fields)]
 pub struct ExecutionPayload {

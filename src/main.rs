@@ -694,7 +694,7 @@ impl NodeRouter {
                 let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
 
                 if let Some(most_profitable_payload) = most_profitable {
-                    tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
+                    tracing::info!("Block {} requested by CL. All EL blocks profitability: {:?}. Using payload with value of {}", most_profitable_payload.execution_payload.block_number, resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
                     return (make_response(&request.id, json!(most_profitable_payload)), 200);
                 }
                 
@@ -713,7 +713,7 @@ impl NodeRouter {
                 // note: we may want to get the most profitable block from resps that have should_override_builder = true, note this in release
 
                 if let Some(most_profitable_payload) = most_profitable {
-                    tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
+                    tracing::info!("Block {} requested by CL. All EL blocks profitability: {:?}. Using payload with value of {}", most_profitable_payload.execution_payload.block_number, resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
                     return (make_response(&request.id, json!(most_profitable_payload)), 200);
                 }
 
