@@ -23,9 +23,7 @@ use rlp::RlpStream;
 use std::error::Error;
 use triehash::ordered_trie_root;
 use types::keccak::{keccak256, KeccakHasher};
-use types::{
-    map_execution_block_header_fields, ExecutionBlockHeader, ExecutionPayload, Withdrawal,
-};
+use types::*;
 
 // Thank you lighthouse team! https://github.com/sigp/lighthouse/blob/stable/beacon_node/execution_layer/src/block_hash.rs#L50-L59
 /// RLP encode an execution block header.
@@ -62,7 +60,7 @@ pub fn verify_payload_block_hash(payload: &ExecutionPayload) -> Result<(), Box<d
     // Calculate withdrawals root (post-Capella).
     let rlp_withdrawals_root = ordered_trie_root::<KeccakHasher, _>(
         payload
-            .withdrawals().map_err(|_| "Error: Tried to verify payload block hash on pre-capella bloc".to_string())?
+            .withdrawals().map_err(|_| "Error: Tried to verify payload block hash on pre-capella block".to_string())?
             .iter() 
             .map(rlp_encode_withdrawal),
     );
@@ -106,6 +104,7 @@ mod tests {
 
         let mut json: serde_json::Value = serde_json::from_str(real_str)?;
         let payload: ExecutionPayload = serde_json::from_value(json["params"][0].clone())?;
+        println!("{:?}", json["params"][0]["withdrawals"]);
 
         // verify the payload block hash.
         verify_payload_block_hash(&payload)?;

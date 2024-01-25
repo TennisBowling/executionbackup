@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
 use std::collections::HashMap;
-
 use ethereum_types::{Address, H256, H64, U256};
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
@@ -45,7 +44,7 @@ impl PayloadStatusV1 {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Withdrawal {
     #[serde(with = "serde_utils::u64_hex_be")]
@@ -58,9 +57,9 @@ pub struct Withdrawal {
 }
 
 
-#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
+#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase", deny_unknown_fields)))]
 #[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase", untagged)]
+#[serde(rename_all = "camelCase", untagged, deny_unknown_fields)]
 pub struct ExecutionPayload {
     #[superstruct(getter(copy))]
     pub parent_hash: H256,
@@ -245,7 +244,7 @@ pub struct forkchoiceUpdatedResponse {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", untagged)]
 pub struct getPayloadResponse {
-    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
+    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]       // V1, V2
     pub execution_payload: ExecutionPayloadV1,
     #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
     pub execution_payload: ExecutionPayloadV2,
@@ -258,13 +257,6 @@ pub struct getPayloadResponse {
     pub blobs_bundle: serde_json::Value,
     #[superstruct(only(V3), partial_getter(copy))]
     pub should_override_builder: bool
-}
-
-#[derive(Clone)]
-pub enum ForkName {
-    V1,
-    V2,
-    V3,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -8,9 +8,8 @@ use axum::{
 use ethereum_types::U256;
 use futures::future::join_all;
 use jsonwebtoken::{self, EncodingKey};
-use reqwest::{self};
 use serde_json::json;
-use std::{sync::Arc, net::SocketAddr, any::type_name, collections::HashMap};
+use std::{any::type_name, collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::{sync::RwLock, time::Duration};
 mod verify_hash;
 use lazy_static::lazy_static;
@@ -309,8 +308,6 @@ struct NodeRouter {
 
     // setting to set if node timings are displayed
     node_timings_enabled: bool,
-
-    fork: ForkName,
 }
 
 impl NodeRouter {
@@ -644,7 +641,7 @@ impl NodeRouter {
         let req_clone = req.clone();
         tokio::spawn(async move {
             let syncing_nodes = syncing_nodes.read().await;
-            tracing::debug!("sending fcU or newPayload to {} syncing nodes", syncing_nodes.len());
+            tracing::debug!("Sending fcU or newPayload to {} syncing nodes", syncing_nodes.len());
 
             let mut futs = Vec::with_capacity(syncing_nodes.len());
             for node in syncing_nodes.iter() {
@@ -690,43 +687,42 @@ impl NodeRouter {
             EngineMethod::engine_getPayloadV2 => {
                 // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
                 // so we should send this to all the nodes and then return the one with the highest blockValue
-                match &self.fork {
-                    ForkName::V1 => {
-                        // V1 and V2 just refers to the version of the nested execution payload
 
-                        let resps: Vec<getPayloadResponseV1> = self.concurrent_requests(request, jwt_token).await;
-                        let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
+                // WILLNOTFIX the spec require getPayloadV2 to support getPayloadResponseV1, but it adds too much complexity
+                // for little benefit, as I doubt people actually use getPayloadResponseV2 with getPayloadV2
+                let resps: Vec<getPayloadResponseV2> = self.concurrent_requests(request, jwt_token).await;
+                let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
 
-                        if let Some(most_profitable_payload) = most_profitable {
-                            tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
-                            return (make_response(&request.id, json!(most_profitable_payload)), 200);
-                        }
-                    },
-                    ForkName::V2 => {
-                        let resps: Vec<getPayloadResponseV2> = self.concurrent_requests(request, jwt_token).await;
-                        let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
-
-                        if let Some(most_profitable_payload) = most_profitable {
-                            tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
-                            return (make_response(&request.id, json!(most_profitable_payload)), 200);
-                        }
-
-                    },
-
-                    ForkName::V3 => {
-                        // we can technically handle V3 payloads but we shouldn't
-                        return (make_error(&request.id, "Called getPayloadV2 and EL returned a V3 response"), 200);
-                    }
-                };
-
-                
+                if let Some(most_profitable_payload) = most_profitable {
+                    tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
+                    return (make_response(&request.id, json!(most_profitable_payload)), 200);
+                }
                 
                 // we have no payloads
-                tracing::warn!("No blocks found in engine_getPayloadV2 responses");
-                (make_error(&request.id, "No blocks found in engine_getPayloadV2 responses"), 200)
+                tracing::warn!("No blocks found in EL engine_getPayloadV2 responses");
+                (make_error(&request.id, "No blocks found in EL engine_getPayloadV2 responses"), 200)
             },      // getPayloadV2
 
-            EngineMethod::engine_newPayloadV1 | EngineMethod::engine_newPayloadV2 => {
+            EngineMethod::engine_getPayloadV3 => {
+                // accepts only getPayloadResponseV3 since this version actually modifies the getPayload response (adding blob_bundle)
+                // as well as the nested execution payload
+
+                let resps: Vec<getPayloadResponseV3> = self.concurrent_requests(request, jwt_token).await;
+                let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
+
+                // note: we may want to get the most profitable block from resps that have should_override_builder = true, note this in release
+
+                if let Some(most_profitable_payload) = most_profitable {
+                    tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
+                    return (make_response(&request.id, json!(most_profitable_payload)), 200);
+                }
+
+                // we have no payloads
+                tracing::warn!("No blocks found in EL engine_getPayloadV3 responses");
+                (make_error(&request.id, "No blocks found in EL engine_getPayloadV2 responses"), 200)
+            },       // getPayloadV3
+
+            EngineMethod::engine_newPayloadV1 | EngineMethod::engine_newPayloadV2 | EngineMethod::engine_newPayloadV3 => {
                 tracing::debug!("Sending newPayload to alive nodes");
                 let resps: Vec<PayloadStatusV1> = self.concurrent_requests(request, jwt_token.clone()).await;
 
@@ -768,23 +764,23 @@ impl NodeRouter {
 
                 // we have a majority
                 (make_response(&request.id, json!(resp)), 200)
-            },      // newPayloadV1, V2
+            },      // newPayloadV1, V2, V3
 
-            EngineMethod::engine_forkchoiceUpdatedV1 | EngineMethod::engine_forkchoiceUpdatedV2 => {
+            EngineMethod::engine_forkchoiceUpdatedV1 | EngineMethod::engine_forkchoiceUpdatedV2 | EngineMethod::engine_forkchoiceUpdatedV3 => {
                 tracing::debug!("Sending fcU to alive nodes");
                 let resps: Vec<forkchoiceUpdatedResponse> = self.concurrent_requests(request, jwt_token.clone()).await;
 
-                let mut resps_new = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
+                let mut payloadstatus_resps = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
                 let mut payload_id: Option<String> = None;
 
                 for resp in resps {
                     if let Some(inner_payload_id) = resp.payloadId {    // todo: make this look cleaner. 
                         payload_id = Some(inner_payload_id);                     // if payloadId is not null, then use that. all resps will have the same payloadId
                     };
-                    resps_new.push(resp.payloadStatus);
+                    payloadstatus_resps.push(resp.payloadStatus);
                 }
                 
-                let resp = match self.fcu_logic(&resps_new, request, jwt_token).await {
+                let resp = match self.fcu_logic(&payloadstatus_resps, request, jwt_token).await {
                     Ok(resp) => resp,
                     Err(e) => match e {
                         FcuLogicError::NoResponses => {
@@ -1049,7 +1045,7 @@ async fn make_metrics_report(router: Arc<NodeRouter>) -> Result<serde_json::Valu
     };
     
 
-    serde_json::to_value(&metrics_report)
+    serde_json::to_value(metrics_report)
 }
 
 async fn metrics(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResponse {
@@ -1105,7 +1101,7 @@ async fn recheck(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResp
         }
     };
     
-    return Response::builder()
+    Response::builder()
         .status(200)
         .header(header::CONTENT_TYPE, "application/json")
         .body(resp_body)

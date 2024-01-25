@@ -3,7 +3,7 @@ A Ethereum 2.0 multiplexer enabling execution node failover and multiplexing
 
 ## Installing
 EB has provided releases for Linux, Windows, and MacOS.
-You can download the latest release [here](https://github.com/tennisbowlin/executionbackup/releases/latest).
+You can download the latest release [here](https://github.com/tennisbowling/executionbackup/releases/latest).
 
 You can also build from source using the following commands:
 ```bash
@@ -30,13 +30,17 @@ Truth Table for responses to CL when EL's are different:
 | INVALID | INVALID | VALID   | INVALID |
 | INVALID | INVALID | SYNCING | INVALID |
 
-* Results of SYNCING are checked to verify if payload.block_hash is equal to keccak256(rlp(block_header)) to not get inconsistent block hashes in a supermajority  
-* Rows 3, 5, 6 are determined by the fcu-invalid-threshold parameter that determins what percentage of EL's are needed to be considered a majority and be the result
+* Results of SYNCING are checked to verify if payload.block_hash is equal to keccak256(rlp(block_header)) to not get inconsistent block hashes in a supermajority.  
+* Rows 3, 5, 6 are determined by the fcu-invalid-threshold parameter that determins what percentage of EL's are needed to be considered a majority and be the result.  
+  
+[Here](https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=17b1a6038975267f9b1f61529cc4ca4c) is a rust playground where you can test the multiplexer logic.
 
 # Execution API backup Dockerized
 
 You can run a docker-compose enabled version of the tool by making use of the dockerized folder
 
 # Testing
+```bash
+cargo test --all
 ```
-cargo test --all```
+
