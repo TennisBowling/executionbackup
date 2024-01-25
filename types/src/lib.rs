@@ -60,8 +60,7 @@ pub struct Withdrawal {
 
 #[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
 #[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-#[serde(untagged)]
+#[serde(rename_all = "camelCase", untagged)]
 pub struct ExecutionPayload {
     #[superstruct(getter(copy))]
     pub parent_hash: H256,
@@ -244,8 +243,7 @@ pub struct forkchoiceUpdatedResponse {
 
 #[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
 #[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-#[serde(untagged)]
+#[serde(rename_all = "camelCase", untagged)]
 pub struct getPayloadResponse {
     #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
     pub execution_payload: ExecutionPayloadV1,
@@ -260,6 +258,13 @@ pub struct getPayloadResponse {
     pub blobs_bundle: serde_json::Value,
     #[superstruct(only(V3), partial_getter(copy))]
     pub should_override_builder: bool
+}
+
+#[derive(Clone)]
+pub enum ForkName {
+    V1,
+    V2,
+    V3,
 }
 
 #[derive(Serialize, Deserialize)]

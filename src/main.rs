@@ -309,6 +309,8 @@ struct NodeRouter {
 
     // setting to set if node timings are displayed
     node_timings_enabled: bool,
+
+    fork: ForkName,
 }
 
 impl NodeRouter {
@@ -373,7 +375,7 @@ impl NodeRouter {
                         }
                     };
 
-                    
+
                     match serde_json::from_value::<T>(result) {
                         Ok(deserialized) => {
                             out.push(deserialized);
@@ -688,13 +690,36 @@ impl NodeRouter {
             EngineMethod::engine_getPayloadV2 => {
                 // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
                 // so we should send this to all the nodes and then return the one with the highest blockValue
-                let resps: Vec<getPayloadResponse> = self.concurrent_requests(request, jwt_token).await;
-                let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.block_value().cmp(&resp_b.block_value()));
+                match &self.fork {
+                    ForkName::V1 => {
+                        // V1 and V2 just refers to the version of the nested execution payload
 
-                if let Some(most_profitable_payload) = most_profitable {
-                    tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.block_value()).collect::<Vec<U256>>(), most_profitable_payload.block_value());
-                    return (make_response(&request.id, json!(most_profitable_payload)), 200);
-                }
+                        let resps: Vec<getPayloadResponseV1> = self.concurrent_requests(request, jwt_token).await;
+                        let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
+
+                        if let Some(most_profitable_payload) = most_profitable {
+                            tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
+                            return (make_response(&request.id, json!(most_profitable_payload)), 200);
+                        }
+                    },
+                    ForkName::V2 => {
+                        let resps: Vec<getPayloadResponseV2> = self.concurrent_requests(request, jwt_token).await;
+                        let most_profitable = resps.iter().max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
+
+                        if let Some(most_profitable_payload) = most_profitable {
+                            tracing::info!("Blocks profitability: {:?}. Using payload with value of {}", resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
+                            return (make_response(&request.id, json!(most_profitable_payload)), 200);
+                        }
+
+                    },
+
+                    ForkName::V3 => {
+                        // we can technically handle V3 payloads but we shouldn't
+                        return (make_error(&request.id, "Called getPayloadV2 and EL returned a V3 response"), 200);
+                    }
+                };
+
+                
                 
                 // we have no payloads
                 tracing::warn!("No blocks found in engine_getPayloadV2 responses");
