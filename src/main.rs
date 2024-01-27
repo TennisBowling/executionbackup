@@ -344,8 +344,8 @@ impl NodeRouter {
 
         let mut alive_but_syncing_nodes = self.alive_but_syncing_nodes.write().await;
         alive_nodes.remove(index);
+        alive_but_syncing_nodes.push(node.clone());
         node.set_online_and_syncing().await;
-        alive_but_syncing_nodes.push(node);
     }
 
     // returns Vec<T> where it tries to deserialize for each resp to T
@@ -406,17 +406,15 @@ impl NodeRouter {
         let mut checks = Vec::new();
 
         for node in self.nodes.iter() {
-            let node_clone = node.clone();
-            let jwt_key_clone = self.jwt_key.clone();
             let check = async move {
-                match node_clone.check_status(jwt_key_clone).await {
-                    Ok(status) => (status, node_clone.clone()),
+                match node.check_status(self.jwt_key.clone()).await {
+                    Ok(status) => (status, node.clone()),
                     Err(e) => {
                         if e.is_decode() {
-                            tracing::error!("Error while checking node {}: {}; Maybe jwt related?", node_clone.url, e);
+                            tracing::error!("Error while checking node {}: {}; Maybe jwt related?", node.url, e);
                         }
                         else {
-                            tracing::error!("Error while checking node {}: {}", node_clone.url, e);
+                            tracing::error!("Error while checking node {}: {}", node.url, e);
                         }
                         
                         (
@@ -424,7 +422,7 @@ impl NodeRouter {
                                 status: SyncingStatus::Offline,
                                 resp_time: 0,
                             },
-                            node_clone.clone(),
+                            node.clone(),
                         )
                     }
                     
@@ -483,9 +481,10 @@ impl NodeRouter {
         drop(primary_node);
 
         // lock alive_nodes, dead_nodes, and alive_but_syncing_nodes
+        let mut alive_but_syncing_nodes = self.alive_but_syncing_nodes.write().await;   // we have a hard time acquiring this lock for some reason
         let mut alive_nodes = self.alive_nodes.write().await;
         let mut dead_nodes = self.dead_nodes.write().await;
-        let mut alive_but_syncing_nodes = self.alive_but_syncing_nodes.write().await;
+        
 
         // clear vectors and for alive nodes put the Arc<Node> in the vector
         alive_nodes.clear();
@@ -522,7 +521,6 @@ impl NodeRouter {
         if alive_nodes.is_empty() {
             let alive_but_syncing_nodes = self.alive_but_syncing_nodes.read().await;
             if alive_but_syncing_nodes.is_empty() {
-                // no synced or syncing nodes, so return None
                 None
             } else {
                 // no synced nodes, but there are syncing nodes, so return the first syncing node
@@ -637,18 +635,13 @@ impl NodeRouter {
 
         // send to the syncing nodes to help them catch up with tokio::spawn so we don't have to wait for them
         let syncing_nodes = self.alive_but_syncing_nodes.clone();
-        let jwt_token_clone = jwt_token.to_string();
+        let jwt_token_clone = jwt_token.clone();
         let req_clone = req.clone();
         tokio::spawn(async move {
-            let syncing_nodes = syncing_nodes.read().await;
+            let syncing_nodes = syncing_nodes.read().await.clone();
             tracing::debug!("Sending fcU or newPayload to {} syncing nodes", syncing_nodes.len());
 
-            let mut futs = Vec::with_capacity(syncing_nodes.len());
-            for node in syncing_nodes.iter() {
-                futs.push(node.do_request_no_timeout(&req_clone, jwt_token_clone.clone()));
-            }
-
-            join_all(futs).await;
+            join_all(syncing_nodes.iter().map(|node| node.do_request_no_timeout(&req_clone, jwt_token_clone.clone()))).await;
 
         });
 
@@ -849,16 +842,11 @@ impl NodeRouter {
                 let jwt_token = jwt_token.to_owned();
                 let request_clone = request.clone();
                 tokio::spawn(async move {
-                    let alive_nodes = alive_nodes.read().await;
-                    let mut futs = Vec::with_capacity(alive_nodes.len());
+                    let alive_nodes = alive_nodes.read().await.clone();
 
-                    for node in alive_nodes.iter() {
-                        if node.url != primary_node.url {
-                            futs.push(node.do_request_no_timeout(&request_clone, jwt_token.clone()));
-                        }
-                    }
-
-                    join_all(futs).await;
+                    join_all(alive_nodes.iter()
+                    .filter(|node| node.url != primary_node.url)
+                    .map(|node| node.do_request_no_timeout(&request_clone, jwt_token.clone()))).await;
 
                 });
 
