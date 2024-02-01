@@ -173,7 +173,6 @@ pub enum SyncingStatus {
 }
 
 #[derive(Debug)]
-
 pub enum FcuLogicError {
     NoMajority,
     OneNodeIsInvalid,

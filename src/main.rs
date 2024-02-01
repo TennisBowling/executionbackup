@@ -59,7 +59,7 @@ fn parse_result(resp: &str) -> Result<serde_json::Value, ParseError> {
     };
 
     if let Some(error)= j.get("error") {
-        tracing::error!("Response has error field: {}", error);
+        tracing::error!("Response has error: {}", error);
         return Err(ParseError::ElError);
     }
 
@@ -81,7 +81,7 @@ fn make_syncing_str(id: &u64, payload: &serde_json::Value, method: &EngineMethod
                 "Verifying execution payload blockhash {}.",
                 payload["blockHash"]
             );
-            let execution_payload = match serde_json::from_value::<ExecutionPayload>(payload.clone()) {
+            let execution_payload = match serde_json::from_value::< >(payload.clone()) {
                 Ok(execution_payload) => execution_payload,
                 Err(e) => {
                     tracing::error!("Error deserializing execution payload: {}", e);
