@@ -15,6 +15,7 @@ mod verify_hash;
 use lazy_static::lazy_static;
 use types::*;
 use verify_hash::verify_payload_block_hash;
+use regex::Regex;
 
 
 const VERSION: &str = "1.1.3beta";
@@ -28,6 +29,19 @@ lazy_static! {
     static ref JWT_HEADER: jsonwebtoken::Header = {
         jsonwebtoken::Header::new(DEFAULT_ALGORITHM)
     };
+}
+
+fn read_jwt(path: &str) -> Result<jsonwebtoken::EncodingKey, String> {
+    let jwt_secret = std::fs::read_to_string(path).map_err(|e| format!("Error reading jwt file: {}", e))?;
+    let jwt_secret = jwt_secret.trim().to_string();
+
+    // check if jwt_secret starts with "0x" and remove it if it does
+    let jwt_secret = jwt_secret
+        .strip_prefix("0x")
+        .unwrap_or(&jwt_secret)
+        .to_string();
+    
+    Ok(EncodingKey::from_secret(&hex::decode(jwt_secret).map_err(|e| format!("Could not decode JWT: {}", e))?))
 }
 
 fn make_jwt(jwt_key: &jsonwebtoken::EncodingKey) -> Result<String, jsonwebtoken::errors::Error> {
@@ -81,7 +95,7 @@ fn make_syncing_str(id: &u64, payload: &serde_json::Value, method: &EngineMethod
                 "Verifying execution payload blockhash {}.",
                 payload["blockHash"]
             );
-            let execution_payload = match serde_json::from_value::< >(payload.clone()) {
+            let execution_payload = match serde_json::from_value::<ExecutionPayload>(payload.clone()) {
                 Ok(execution_payload) => execution_payload,
                 Err(e) => {
                     tracing::error!("Error deserializing execution payload: {}", e);
@@ -114,10 +128,11 @@ pub struct Node
     client: reqwest::Client,
     url: String,
     status: Arc<RwLock<NodeHealth>>,
+    jwt_key: jsonwebtoken::EncodingKey,
 }
 
 impl Node {
-    pub fn new(url: String) -> Node {
+    pub fn new(url: String, jwt_key: jsonwebtoken::EncodingKey) -> Node {
         let client = reqwest::Client::new();
         Node {
             client,
@@ -126,6 +141,7 @@ impl Node {
                 status: SyncingStatus::NodeNotInitialized,
                 resp_time: 0,
             })),
+            jwt_key
         }
     }
 
@@ -160,12 +176,9 @@ impl Node {
         }
     }
 
-    async fn check_status(
-        &self,
-        jwt_key: Arc<jsonwebtoken::EncodingKey>,
-    ) -> Result<NodeHealth, reqwest::Error> {
+    async fn check_status(&self) -> Result<NodeHealth, reqwest::Error> {
         // we need to use jwt here since we're talking directly to the EE's auth port
-        let token = make_jwt(&jwt_key).unwrap();
+        let token = make_jwt(&self.jwt_key).unwrap();
         let start = std::time::Instant::now();
         let resp = self
             .client
@@ -193,12 +206,13 @@ impl Node {
         let result = &json_body["result"];
 
         if result.is_boolean() {
-            if !result.as_bool().unwrap() {
+            if !result.as_bool().unwrap() { // unwrap is safe due to check above
                 self.set_synced().await;
             } else {
                 self.set_online_and_syncing().await;
             }
         } else {
+            // syncing nodes return a object reporting the sync status
             self.set_online_and_syncing().await;
         }
 
@@ -301,7 +315,7 @@ struct NodeRouter {
     primary_node: Arc<RwLock<Arc<Node>>>,
 
     // jwt encoded key used to make tokens for the EE's auth port
-    jwt_key: Arc<jsonwebtoken::EncodingKey>,
+    // jwt_key: Arc<jsonwebtoken::EncodingKey>,
 
     // percentage of nodes that need to agree for it to be deemed a majority
     majority_percentage: f32, // 0.1..0.9
@@ -312,7 +326,7 @@ struct NodeRouter {
 
 impl NodeRouter {
     fn new(
-        jwt_key: &jsonwebtoken::EncodingKey,
+        //jwt_key: &jsonwebtoken::EncodingKey,
         majority_percentage: f32,
         nodes: Vec<Arc<Node>>,
         primary_node: Arc<Node>,
@@ -324,7 +338,7 @@ impl NodeRouter {
             dead_nodes: Arc::new(RwLock::new(Vec::new())),
             alive_but_syncing_nodes: Arc::new(RwLock::new(Vec::new())),
             primary_node: Arc::new(RwLock::new(primary_node)),
-            jwt_key: Arc::new(jwt_key.clone()),
+            //jwt_key: Arc::new(jwt_key.clone()),
             majority_percentage,
             node_timings_enabled,
         }
@@ -407,7 +421,7 @@ impl NodeRouter {
 
         for node in self.nodes.iter() {
             let check = async move {
-                match node.check_status(self.jwt_key.clone()).await {
+                match node.check_status().await {
                     Ok(status) => (status, node.clone()),
                     Err(e) => {
                         if e.is_decode() {
@@ -978,8 +992,8 @@ async fn route_all(
             let (resp, status) = router
                 .do_route_normal(
                     body,
-                    format!("Bearer {}", make_jwt(&router.jwt_key).unwrap()),   // supporting requests without jwt tokens to authrpc is used for OE.
-                )                                                               // open an issue if you need this to be changed
+                    format!("Bearer {}", make_jwt(&router.primary_node.read().await.jwt_key).unwrap()),   // supporting requests without jwt tokens to authrpc is used for OE.
+                )                                        // open an issue if you need this to be changed
                 .await;
 
             return Response::builder()
@@ -989,15 +1003,32 @@ async fn route_all(
                 .unwrap();
         }
 
+        let jwt_token = match headers.get("Authorization") {
+            Some(header_value) => match header_value.to_str() {
+                Ok(jwt_str) => jwt_str.to_string(),
+                Err(e) => {
+                    tracing::warn!("Could not extract authorization header from normal request: {}", e);
+                    return Response::builder()
+                        .status(400)
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(r#"{"error": "Could not extract authorization header from normal request}"#.to_string())
+                        .unwrap()
+                }
+            },
+            None => {
+                // should never happen, should've been caught before and been replaced
+                return Response::builder()
+                    .status(400)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(r#"{"error": "This should never happen, please open an issue.}"#.to_string())
+                    .unwrap()
+            }
+        };
+
         let (resp, status) = router
             .do_route_normal(
                 body,
-                headers
-                    .get("Authorization")
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
+                jwt_token
             )
             .await;
 
@@ -1133,7 +1164,7 @@ async fn main() {
                 .value_name("JWT")
                 .help("Path to JWT secret file")
                 .takes_value(true)
-                .required(true),
+                .required(false),
         )
         .arg(
             clap::Arg::with_name("fcu-majority")
@@ -1171,7 +1202,7 @@ async fn main() {
 
     let port = matches.value_of("port").unwrap();
     let nodes = matches.value_of("nodes").unwrap();
-    let jwt_secret = matches.value_of("jwt-secret").unwrap();
+    let jwt_secret_path = matches.value_of("jwt-secret");
     let fcu_majority = matches.value_of("fcu-majority").unwrap();
     let listen_addr = matches.value_of("listen-addr").unwrap();
     let log_level = matches.value_of("log-level").unwrap();
@@ -1208,25 +1239,59 @@ async fn main() {
 
     let nodes = nodes.split(',').collect::<Vec<&str>>();
     let mut nodesinstances: Vec<Arc<Node>> = Vec::new();
-    for node in nodes.clone() {
-        let node = Arc::new(Node::new(node.to_string()));
-        nodesinstances.push(node);
+
+    let re = match Regex::new(r"#jwt-secret=(.*)") {
+        Ok(re) => re,
+        Err(e) => {
+            tracing::error!("Failed to compile jwt matching secret: {}", e);
+            return;
+        }
+    };
+
+
+    let mut general_jwt: Option<jsonwebtoken::EncodingKey> = None;
+    if let Some(general_jwt_path) = jwt_secret_path {
+        general_jwt = Some(match read_jwt(general_jwt_path) {
+            Ok(general_jwt) => general_jwt,
+            Err(e) => {
+                tracing::error!("Error reading encoding general jwt: {}", e);
+                return;
+            }
+        });
     }
-    let primary_node = nodesinstances[0].clone();
 
-    let jwt_secret = std::fs::read_to_string(jwt_secret).expect("Unable to read JWT secret file");
-    let jwt_secret = jwt_secret.trim().to_string();
+    for node in nodes.clone() {
+        if let Some(captures) = re.captures(node) {
+            if let Some(jwt_path) = captures.get(1) {
+                let jwt_secret = match read_jwt(jwt_path.as_str()) {
+                    Ok(jwt_secret) => jwt_secret,
+                    Err(e) => {
+                        tracing::error!("Could not encode jwt secret: {}", e);
+                        return;
+                    }
+                };
+                let node_str = re.replace(node, "").to_string();
+                let node = Arc::new(Node::new(node_str, jwt_secret));
+                nodesinstances.push(node);
+                continue;
+            }
+        }
+        else if let Some(general_jwt) = &general_jwt {
+            nodesinstances.push(Arc::new(Node::new(node.to_string(), general_jwt.clone())))
+        }
+        else {
+            tracing::error!("Node {} does not match specific or general jwt", node);
+            return;
+        }
 
-    // check if jwt_secret starts with "0x" and remove it if it does
-    let jwt_secret = jwt_secret
-        .strip_prefix("0x")
-        .unwrap_or(&jwt_secret)
-        .to_string();
-    let jwt_secret =
-        &EncodingKey::from_secret(&hex::decode(jwt_secret).expect("Could not decode jwt secret"));
+    }
+    
+
+    // guarenteed to have at least 1 node since clap enforces it
+    let primary_node = nodesinstances.first().unwrap().clone();   
 
     let router = Arc::new(NodeRouter::new(
-        jwt_secret,
+        //jwt_secret,
         fcu_majority,
         nodesinstances,
         primary_node,
