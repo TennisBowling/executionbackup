@@ -1,10 +1,13 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
-use std::collections::HashMap;
 use ethereum_types::{Address, H256, H64, U256};
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
-use ssz_types::{VariableList, typenum::{U1073741824, U1048576}};
+use ssz_types::{
+    typenum::{U1048576, U1073741824},
+    VariableList,
+};
+use std::collections::HashMap;
 pub mod keccak;
 use superstruct::superstruct;
 
@@ -56,8 +59,52 @@ pub struct Withdrawal {
     pub amount: u64,
 }
 
+pub enum ForkName {
+    Merge,
+    Shanghai,
+    Cancun,
+}
 
-#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
+pub struct ForkConfig {
+    //  pub MERGE_FORK_EPOCH: Option<u64> = Some(144896);
+    pub shanghai_fork_epoch: Option<u64>,
+    pub cancun_fork_epoch: Option<u64>,
+}
+
+impl ForkConfig {
+    pub fn mainnet() -> Self {
+        ForkConfig {
+            shanghai_fork_epoch: Some(194048),
+            cancun_fork_epoch: Some(269568),
+        }
+    }
+
+    pub fn holesky() -> Self {
+        ForkConfig {
+            shanghai_fork_epoch: Some(256),
+            cancun_fork_epoch: Some(29696),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct NewPayloadRequest {
+    pub execution_payload: ExecutionPayload,
+    pub expected_blob_versioned_hashes: Option<Vec<H256>>,
+    pub parent_beacon_block_root: Option<H256>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct QuantityU64 {
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub value: u64,
+}
+
+#[superstruct(
+    variants(V1, V2, V3),
+    variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
+)]
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", untagged, deny_unknown_fields)]
 pub struct ExecutionPayload {
@@ -93,7 +140,7 @@ pub struct ExecutionPayload {
     #[superstruct(getter(copy))]
     pub block_hash: H256,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions: VariableList<VariableList<u8, U1073741824>, U1048576>,    // larger one is max bytes per transaction, smaller one is max transactions per payload
+    pub transactions: VariableList<VariableList<u8, U1073741824>, U1048576>, // larger one is max bytes per transaction, smaller one is max transactions per payload
     #[superstruct(only(V2, V3))]
     pub withdrawals: Vec<Withdrawal>,
     #[superstruct(only(V3), partial_getter(copy))]
@@ -105,7 +152,12 @@ pub struct ExecutionPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[metastruct(mappings(map_execution_block_header_fields()))]
+#[metastruct(mappings(map_execution_block_header_fields_base(exclude(
+    withdrawals_root,
+    blob_gas_used,
+    excess_blob_gas,
+    parent_beacon_block_root
+)),))]
 pub struct ExecutionBlockHeader {
     pub parent_hash: H256,
     pub ommers_hash: H256,
@@ -123,7 +175,10 @@ pub struct ExecutionBlockHeader {
     pub mix_hash: H256,
     pub nonce: H64,
     pub base_fee_per_gas: U256,
-    pub withdrawals_root: H256,
+    pub withdrawals_root: Option<H256>,
+    pub blob_gas_used: Option<u64>,
+    pub excess_blob_gas: Option<u64>,
+    pub parent_beacon_block_root: Option<H256>,
 }
 
 impl ExecutionBlockHeader {
@@ -131,11 +186,13 @@ impl ExecutionBlockHeader {
         payload: &ExecutionPayload,
         rlp_empty_list_root: H256,
         rlp_transactions_root: H256,
-        rlp_withdrawals_root: H256,
+        rlp_withdrawals_root: Option<H256>,
+        rlp_blob_gas_used: Option<u64>,
+        rlp_excess_blob_gas: Option<u64>,
+        rlp_parent_beacon_block_root: Option<H256>,
     ) -> Self {
         // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
         // defined in EIP-4399.
-
         ExecutionBlockHeader {
             parent_hash: payload.parent_hash(),
             ommers_hash: rlp_empty_list_root,
@@ -154,6 +211,9 @@ impl ExecutionBlockHeader {
             nonce: H64::zero(),
             base_fee_per_gas: payload.base_fee_per_gas(),
             withdrawals_root: rlp_withdrawals_root,
+            blob_gas_used: rlp_blob_gas_used,
+            excess_blob_gas: rlp_excess_blob_gas,
+            parent_beacon_block_root: rlp_parent_beacon_block_root,
         }
     }
 }
@@ -200,7 +260,7 @@ pub struct NodeTiming {
     pub resp_time: u128,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum EngineMethod {
     engine_newPayloadV1,
     engine_forkchoiceUpdatedV1,
@@ -215,7 +275,6 @@ pub enum EngineMethod {
     engine_newPayloadV3,
     engine_forkchoiceUpdatedV3,
     engine_getPayloadV3,
-    
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -239,11 +298,14 @@ pub struct forkchoiceUpdatedResponse {
     pub payloadId: Option<String>,
 }
 
-#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
+#[superstruct(
+    variants(V1, V2, V3),
+    variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
+)]
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", untagged)]
 pub struct getPayloadResponse {
-    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]       // V1, V2
+    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))] // V1, V2
     pub execution_payload: ExecutionPayloadV1,
     #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
     pub execution_payload: ExecutionPayloadV2,
@@ -255,7 +317,7 @@ pub struct getPayloadResponse {
     #[superstruct(only(V3))]
     pub blobs_bundle: serde_json::Value,
     #[superstruct(only(V3), partial_getter(copy))]
-    pub should_override_builder: bool
+    pub should_override_builder: bool,
 }
 
 #[derive(Serialize, Deserialize)]
