@@ -18,3 +18,10 @@ array-bytes = "6.1.0"
 ethereum_serde_utils = "0.5.1"
 ssz_types = "0.6.0"
 superstruct = "0.7.0"
+reqwest = { version = "0.11.22", features = ["json"] }
+jsonwebtoken = "9.2.0"
+tokio = { version = "1.35", features = ["full"] }
+tracing = "0.1.4"
+chrono = "0.4.31"
+lazy_static = "1.4.0"
+regex = "1.10.3"

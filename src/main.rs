@@ -1,47 +1,26 @@
 use axum::{
     self,
-    extract::DefaultBodyLimit,
+    extract::{self, DefaultBodyLimit},
     http::{header, HeaderMap, StatusCode},
-    response::IntoResponse,
-    response::Response,
+    response::{IntoResponse, Response},
     Extension, Router,
 };
 use ethereum_types::{H256, U256};
 use futures::future::join_all;
-use jsonwebtoken::{self, EncodingKey};
+
 use serde_json::json;
 use std::{any::type_name, collections::HashMap, net::SocketAddr, sync::Arc};
-use tokio::{sync::RwLock, time::Duration};
+use tokio::{
+    sync::{Mutex, RwLock},
+    time::Duration,
+};
 use tracing_subscriber::filter::EnvFilter;
 mod verify_hash;
-use lazy_static::lazy_static;
 use regex::Regex;
-use types::*;
+use types::{node::Node, *};
 use verify_hash::verify_payload_block_hash;
 
 const VERSION: &str = "1.2.0";
-const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
-
-lazy_static! {
-    static ref TIMEOUT: Duration = Duration::from_millis(7500);
-    static ref JWT_HEADER: jsonwebtoken::Header = jsonwebtoken::Header::new(DEFAULT_ALGORITHM);
-}
-
-fn read_jwt(path: &str) -> Result<jsonwebtoken::EncodingKey, String> {
-    let jwt_secret =
-        std::fs::read_to_string(path).map_err(|e| format!("Error reading jwt file: {}", e))?;
-    let jwt_secret = jwt_secret.trim().to_string();
-
-    // check if jwt_secret starts with "0x" and remove it if it does
-    let jwt_secret = jwt_secret
-        .strip_prefix("0x")
-        .unwrap_or(&jwt_secret)
-        .to_string();
-
-    Ok(EncodingKey::from_secret(
-        &hex::decode(jwt_secret).map_err(|e| format!("Could not decode JWT: {}", e))?,
-    ))
-}
 
 pub fn fork_name_at_epoch(epoch: u64, fork_config: &ForkConfig) -> ForkName {
     if let Some(fork_epoch) = fork_config.cancun_fork_epoch {
@@ -199,13 +178,6 @@ pub fn newpayload_serializer(
     })
 }
 
-fn make_jwt(jwt_key: &jsonwebtoken::EncodingKey) -> Result<String, jsonwebtoken::errors::Error> {
-    let claim_inst = Claims {
-        iat: chrono::Utc::now().timestamp(),
-    };
-    jsonwebtoken::encode(&JWT_HEADER, &claim_inst, jwt_key)
-}
-
 fn make_response(id: &u64, result: serde_json::Value) -> String {
     json!({"jsonrpc":"2.0","id":id,"result":result}).to_string()
 }
@@ -301,192 +273,8 @@ fn make_syncing_str(
     }
 }
 
-#[derive(Clone)]
-pub struct Node
-// represents an EE
-{
-    client: reqwest::Client,
-    url: String,
-    status: Arc<RwLock<NodeHealth>>,
-    jwt_key: jsonwebtoken::EncodingKey,
-}
-
-impl Node {
-    pub fn new(url: String, jwt_key: jsonwebtoken::EncodingKey) -> Node {
-        let client = reqwest::Client::new();
-        Node {
-            client,
-            url,
-            status: Arc::new(RwLock::new(NodeHealth {
-                status: SyncingStatus::NodeNotInitialized,
-                resp_time: 0,
-            })),
-            jwt_key,
-        }
-    }
-
-    async fn set_synced(&self) {
-        let status = self.status.read().await;
-        if status.status != SyncingStatus::Synced {
-            tracing::info!("Node {} is synced", self.url);
-            drop(status);
-            let mut status = self.status.write().await;
-            status.status = SyncingStatus::Synced;
-        }
-        // it's already set as synced
-    }
-
-    async fn set_offline(&self) {
-        let status = self.status.read().await;
-        if status.status != SyncingStatus::Offline {
-            tracing::warn!("Node {} is offline", self.url);
-            drop(status);
-            let mut status = self.status.write().await;
-            status.status = SyncingStatus::Offline;
-        }
-    }
-
-    async fn set_online_and_syncing(&self) {
-        let status = self.status.read().await;
-        if status.status != SyncingStatus::OnlineAndSyncing {
-            tracing::info!("Node {} is online and syncing", self.url);
-            drop(status);
-            let mut status = self.status.write().await;
-            status.status = SyncingStatus::OnlineAndSyncing;
-        }
-    }
-
-    async fn check_status(&self) -> Result<NodeHealth, reqwest::Error> {
-        // we need to use jwt here since we're talking directly to the EE's auth port
-        let token = make_jwt(&self.jwt_key).unwrap();
-        let start = std::time::Instant::now();
-        let resp = self
-            .client
-            .post(self.url.clone())
-            .header("Authorization", format!("Bearer {}", token))
-            .header("Content-Type", "application/json")
-            .json(&json!({"jsonrpc": "2.0", "method": "eth_syncing", "params": [], "id": 1}))
-            .timeout(*TIMEOUT)
-            .send()
-            .await;
-        let resp_time = start.elapsed().as_micros();
-        let resp: reqwest::Response = match resp {
-            Ok(resp) => resp,
-            Err(e) => {
-                self.set_offline().await;
-                return Err(e);
-            }
-        };
-
-        // deserialize the json response.
-        // result = false means node is online and not syncing
-        // result = an object means node is syncing
-        let json_body: serde_json::Value = resp.json().await?;
-        let result = &json_body["result"];
-
-        if result.is_boolean() {
-            if !result.as_bool().unwrap() {
-                // unwrap is safe due to check above
-                self.set_synced().await;
-            } else {
-                self.set_online_and_syncing().await;
-            }
-        } else {
-            // syncing nodes return a object reporting the sync status
-            self.set_online_and_syncing().await;
-        }
-
-        // update the status
-        let mut status = self.status.write().await;
-        status.resp_time = resp_time;
-        Ok(status.clone())
-    }
-
-    async fn do_request(
-        &self,
-        data: &RpcRequest,
-        jwt_token: String,
-    ) -> Result<(String, u16), reqwest::Error> {
-        let resp = self
-            .client
-            .post(&self.url)
-            .header("Content-Type", "application/json")
-            .header("Authorization", jwt_token)
-            .body(data.as_bytes())
-            .timeout(*TIMEOUT)
-            .send()
-            .await;
-
-        let resp = match resp {
-            Ok(resp) => resp,
-            Err(e) => {
-                tracing::error!("Error while sending request to node {}: {}", self.url, e);
-                return Err(e);
-            }
-        };
-
-        let status = resp.status().as_u16();
-        let resp_body = resp.text().await?;
-        Ok((resp_body, status))
-    }
-
-    async fn do_request_no_timeout(
-        &self,
-        data: &RpcRequest,
-        jwt_token: String,
-    ) -> Result<(String, u16), reqwest::Error> {
-        let resp = self
-            .client
-            .post(&self.url)
-            .header("Content-Type", "application/json")
-            .header("Authorization", jwt_token)
-            .body(data.as_bytes())
-            .send()
-            .await;
-
-        let resp = match resp {
-            Ok(resp) => resp,
-            Err(e) => {
-                tracing::error!("Error while sending request to node {}: {}", self.url, e);
-                return Err(e);
-            }
-        };
-
-        let status = resp.status().as_u16();
-        let resp_body = resp.text().await?;
-        Ok((resp_body, status))
-    }
-
-    async fn do_request_no_timeout_str(
-        &self,
-        data: String,
-        jwt_token: String,
-    ) -> Result<(String, u16), reqwest::Error> {
-        let resp = self
-            .client
-            .post(&self.url)
-            .header("Content-Type", "application/json")
-            .header("Authorization", jwt_token)
-            .body(data)
-            .send()
-            .await;
-
-        let resp = match resp {
-            Ok(resp) => resp,
-            Err(e) => {
-                tracing::error!("Error while sending request to node {}: {}", self.url, e);
-                return Err(e);
-            }
-        };
-
-        let status = resp.status().as_u16();
-        let resp_body = resp.text().await?;
-        Ok((resp_body, status))
-    }
-}
-
 struct NodeRouter {
-    nodes: Vec<Arc<Node>>,
+    nodes: Arc<Mutex<Vec<Arc<Node>>>>,
     alive_nodes: Arc<RwLock<Vec<Arc<Node>>>>,
     dead_nodes: Arc<RwLock<Vec<Arc<Node>>>>,
     alive_but_syncing_nodes: Arc<RwLock<Vec<Arc<Node>>>>,
@@ -504,6 +292,9 @@ struct NodeRouter {
     node_timings_enabled: bool,
 
     fork_config: ForkConfig,
+
+    // for if we want to use a general jwt with /create_node
+    general_jwt: Option<jsonwebtoken::EncodingKey>,
 }
 
 impl NodeRouter {
@@ -514,9 +305,10 @@ impl NodeRouter {
         primary_node: Arc<Node>,
         node_timings_enabled: bool,
         fork_config: ForkConfig,
+        general_jwt: Option<jsonwebtoken::EncodingKey>,
     ) -> Self {
         NodeRouter {
-            nodes: nodes.clone(),
+            nodes: Arc::new(Mutex::new(nodes.clone())),
             alive_nodes: Arc::new(RwLock::new(Vec::new())),
             dead_nodes: Arc::new(RwLock::new(Vec::new())),
             alive_but_syncing_nodes: Arc::new(RwLock::new(Vec::new())),
@@ -525,6 +317,7 @@ impl NodeRouter {
             majority_percentage,
             node_timings_enabled,
             fork_config,
+            general_jwt,
         }
     }
 
@@ -605,13 +398,14 @@ impl NodeRouter {
         // order nodes in alive_nodes vector by response time
         // dont clone nodes, just clone the Arcs
 
-        let mut new_alive_nodes = Vec::<(u128, Arc<Node>)>::with_capacity(self.nodes.len()); // resp time, node
-        let mut new_dead_nodes = Vec::<Arc<Node>>::with_capacity(self.nodes.len());
-        let mut new_alive_but_syncing_nodes = Vec::<Arc<Node>>::with_capacity(self.nodes.len());
+        let nodes = self.nodes.lock().await;
+        let mut new_alive_nodes = Vec::<(u128, Arc<Node>)>::with_capacity(nodes.len()); // resp time, node
+        let mut new_dead_nodes = Vec::<Arc<Node>>::with_capacity(nodes.len());
+        let mut new_alive_but_syncing_nodes = Vec::<Arc<Node>>::with_capacity(nodes.len());
 
         let mut checks = Vec::new();
 
-        for node in self.nodes.iter() {
+        for node in nodes.iter() {
             let check = async move {
                 match node.check_status().await {
                     Ok(status) => (status, node.clone()),
@@ -680,7 +474,7 @@ impl NodeRouter {
                             Some(node) => node.clone(),
                             None => {
                                 // if there are no dead nodes, then set the primary node to the first node
-                                self.nodes[0].clone()
+                                nodes[0].clone()
                             }
                         }
                     }
@@ -1458,8 +1252,8 @@ async fn metrics(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResp
         .unwrap()
 }
 
-// calls recheck, returns recheck time, and metrics
-async fn recheck(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResponse {
+// calls router.recheck, returns recheck time, and metrics
+async fn recheck(router: Arc<NodeRouter>) -> Result<(String, StatusCode), String> {
     let start = std::time::Instant::now();
     router.recheck().await;
     let resp_time = start.elapsed().as_micros();
@@ -1468,11 +1262,9 @@ async fn recheck(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResp
         Ok(report) => report,
         Err(e) => {
             tracing::error!("Unable to get metrics report: {}", e);
-            return Response::builder()
-                .status(500)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(r#"{"error":"Unable to get metrics report; Recheck succeeded."}"#.to_string())
-                .unwrap();
+            return Err(
+                r#"{"error":"Unable to get metrics report; Recheck succeeded."}"#.to_string(),
+            );
         }
     };
 
@@ -1482,15 +1274,62 @@ async fn recheck(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResp
         Ok(resp_body) => resp_body,
         Err(e) => {
             tracing::error!("Unable to serialize metrics report: {}", e);
-            r#"{"error":"Unable to serialize metrics report"}"#.to_string()
+            return Err(r#"{"error":"Unable to serialize metrics report"}"#.to_string());
         }
     };
 
-    Response::builder()
-        .status(200)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(resp_body)
-        .unwrap()
+    Ok((resp_body, StatusCode::OK))
+}
+
+async fn recheck_handler(Extension(router): Extension<Arc<NodeRouter>>) -> impl IntoResponse {
+    match recheck(router).await {
+        Ok((resp_body, status_code)) => Response::builder()
+            .status(status_code)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(resp_body)
+            .unwrap(),
+        Err(e) => Response::builder()
+            .status(500)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(e)
+            .unwrap(),
+    }
+}
+
+async fn add_node(
+    Extension(router): Extension<Arc<NodeRouter>>,
+    extract::Json(request): extract::Json<NodeList>,
+) -> impl IntoResponse {
+    let mut nodes = match request.create_new_nodes(router.general_jwt.clone()) {
+        Ok(nodes) => nodes,
+        Err(e) => {
+            tracing::error!("Unable to create nodes from NodeList: {}", e);
+            return Response::builder()
+                .status(500)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(format!(
+                    r#"{{"error":"Unable to get nodes from NodeList: {}"}}"#,
+                    e
+                ))
+                .unwrap();
+        }
+    };
+
+    tracing::info!("Adding {} new nodes", nodes.len());
+    router.nodes.lock().await.append(&mut nodes);
+
+    match recheck(router).await {
+        Ok((resp_body, status_code)) => Response::builder()
+            .status(status_code)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(resp_body)
+            .unwrap(),
+        Err(e) => Response::builder()
+            .status(500)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(e)
+            .unwrap(),
+    }
 }
 
 #[tokio::main]
@@ -1673,6 +1512,7 @@ async fn main() {
         primary_node,
         node_timings_enabled,
         fork_config,
+        general_jwt,
     ));
 
     // setup backround task to check if nodes are alive
@@ -1689,7 +1529,8 @@ async fn main() {
     let app = Router::new()
         .route("/", axum::routing::post(route_all))
         .route("/metrics", axum::routing::get(metrics))
-        .route("/recheck", axum::routing::get(recheck))
+        .route("/recheck", axum::routing::get(recheck_handler))
+        .route("/add_nodes", axum::routing::post(add_node))
         .layer(Extension(router.clone()))
         .layer(DefaultBodyLimit::disable()); // no body limit since some requests can be quite large
 

@@ -1,15 +1,53 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
 use ethereum_types::{Address, H256, H64, U256};
+use jsonwebtoken::EncodingKey;
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
 use ssz_types::{
     typenum::{U1048576, U1073741824},
     VariableList,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 pub mod keccak;
 use superstruct::superstruct;
+pub mod node;
+use lazy_static::lazy_static;
+use node::*;
+use regex::Regex;
+use tokio::time::Duration;
+
+const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
+
+lazy_static! {
+    static ref TIMEOUT: Duration = Duration::from_millis(7500);
+    static ref JWT_HEADER: jsonwebtoken::Header = jsonwebtoken::Header::new(DEFAULT_ALGORITHM);
+}
+
+pub fn make_jwt(
+    jwt_key: &jsonwebtoken::EncodingKey,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    let claim_inst = Claims {
+        iat: chrono::Utc::now().timestamp(),
+    };
+    jsonwebtoken::encode(&JWT_HEADER, &claim_inst, jwt_key)
+}
+
+pub fn read_jwt(path: &str) -> Result<jsonwebtoken::EncodingKey, String> {
+    let jwt_secret =
+        std::fs::read_to_string(path).map_err(|e| format!("Error reading jwt file: {}", e))?;
+    let jwt_secret = jwt_secret.trim().to_string();
+
+    // check if jwt_secret starts with "0x" and remove it if it does
+    let jwt_secret = jwt_secret
+        .strip_prefix("0x")
+        .unwrap_or(&jwt_secret)
+        .to_string();
+
+    Ok(EncodingKey::from_secret(
+        &hex::decode(jwt_secret).map_err(|e| format!("Could not decode JWT: {}", e))?,
+    ))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -327,4 +365,60 @@ pub struct MetricsReport {
     pub syncing_nodes: Vec<String>,
     pub dead_nodes: Vec<String>,
     pub primary_node: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct NodeList {
+    pub nodes: Vec<String>,
+}
+
+impl NodeList {
+    pub fn from_nodes_vec(nodes_vec: &[Node]) -> Self {
+        NodeList {
+            nodes: nodes_vec.iter().map(|node| node.url.clone()).collect(),
+        }
+    }
+
+    pub fn create_new_nodes(
+        self,
+        general_jwt: Option<jsonwebtoken::EncodingKey>,
+    ) -> Result<Vec<Arc<Node>>, String> {
+        let re = match Regex::new(r"#jwt-secret=(.*)") {
+            Ok(re) => re,
+            Err(e) => {
+                tracing::error!("Failed to compile jwt matching secret: {}", e);
+                return Err(format!("Failed to compile jwt matching secret: {}", e));
+            }
+        };
+
+        let mut nodeinstances: Vec<Arc<Node>> = Vec::with_capacity(self.nodes.len());
+
+        for node in self.nodes {
+            if let Some(captures) = re.captures(&node) {
+                if let Some(jwt_path) = captures.get(1) {
+                    let jwt_secret = match read_jwt(jwt_path.as_str()) {
+                        Ok(jwt_secret) => jwt_secret,
+                        Err(e) => {
+                            tracing::error!("Could not encode jwt secret: {}", e);
+                            return Err(format!("Could not encode jwt secret: {}", e));
+                        }
+                    };
+                    let node_str = re.replace(&node, "").to_string();
+                    let node = Arc::new(Node::new(node_str, jwt_secret));
+                    nodeinstances.push(node);
+                    continue;
+                }
+            } else if let Some(general_jwt) = &general_jwt {
+                nodeinstances.push(Arc::new(Node::new(node.to_string(), general_jwt.clone())))
+            } else {
+                tracing::error!("Node {} does not match specific or general jwt", node);
+                return Err(format!(
+                    "Node {} does nto match specific or general jwt",
+                    node
+                ));
+            }
+        }
+
+        Ok(nodeinstances)
+    }
 }
