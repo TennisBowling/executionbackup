@@ -68,7 +68,7 @@ ExecutionBackup has a REST API that can be used to get information about the EL 
 #### Description
 Get the current state of the EL nodes and the multiplexer.
 
----
+#  
 
 #### Request
 | Parameter | Description |
@@ -86,14 +86,14 @@ struct MetricsReport {
     primary_node: String,                   // EL node selected for non-engine requests
 }
 ```
----
+--- 
 
 ### GET /recheck
 
 #### Description
 Rechecks the EL nodes and updates the state of the multiplexer. Returns an almost identical response to /metrics, including the time it took to recheck the EL nodes and update the state.
 
-----
+#  
 
 #### Request
 | Parameter | Description |
@@ -112,7 +112,7 @@ struct RecheckMetricsReport {
 }
 ```
 
----
+#  
 
 ### POST /add_nodes
 
