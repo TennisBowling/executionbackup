@@ -339,20 +339,29 @@ impl NodeRouter {
     }
 
     // returns Vec<T> where it tries to deserialize for each resp to T
-    async fn concurrent_requests<T>(&self, request: &RpcRequest, jwt_token: String) -> Vec<T>
+    async fn concurrent_requests<T>(&self, request: &RpcRequest, jwt_token: String, use_syncing_nodes: bool) -> Vec<T>
     where
         T: serde::de::DeserializeOwned,
     {
-        let alive_nodes = self.alive_nodes.read().await;
-        let mut futs = Vec::with_capacity(alive_nodes.len());
+        let mut syncing_size: usize = 0;
+        let mut nodes = self.alive_nodes.read().await.clone();
 
-        alive_nodes
+        if use_syncing_nodes {
+            let mut syncing_nodes = self.alive_but_syncing_nodes.read().await.clone();
+            syncing_size += syncing_nodes.len();
+            nodes.append(&mut syncing_nodes);
+        }
+
+
+        let mut futs = Vec::with_capacity(nodes.len() + syncing_size);
+
+        nodes
             .iter()
             .for_each(|node| futs.push(node.do_request(request, jwt_token.clone())));
 
-        let mut out = Vec::with_capacity(alive_nodes.len());
+        let mut out = Vec::with_capacity(nodes.len());
         let completed = join_all(futs).await;
-        drop(alive_nodes);
+        
 
         for resp in completed {
             match resp {
@@ -700,7 +709,7 @@ impl NodeRouter {
                 // WILLNOTFIX the spec require getPayloadV2 to support getPayloadResponseV1, but it adds too much complexity
                 // for little benefit, as I doubt people actually use getPayloadResponseV2 with getPayloadV2
                 let resps: Vec<getPayloadResponseV2> =
-                    self.concurrent_requests(request, jwt_token).await;
+                    self.concurrent_requests(request, jwt_token, false).await;
                 let most_profitable = resps
                     .iter()
                     .max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
@@ -729,7 +738,7 @@ impl NodeRouter {
                 // as well as the nested execution payload
 
                 let resps: Vec<getPayloadResponseV3> =
-                    self.concurrent_requests(request, jwt_token).await;
+                    self.concurrent_requests(request, jwt_token, false).await;
                 let most_profitable = resps
                     .iter()
                     .max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
@@ -758,7 +767,7 @@ impl NodeRouter {
             EngineMethod::engine_newPayloadV1 | EngineMethod::engine_newPayloadV2 => {
                 tracing::debug!("Sending newPayloadV1|V2 to alive nodes");
                 let resps: Vec<PayloadStatusV1> =
-                    self.concurrent_requests(request, jwt_token.clone()).await;
+                    self.concurrent_requests(request, jwt_token.clone(), false).await;
 
                 let resp = match self.fcu_logic(&resps, request, jwt_token).await {
                     Ok(resp) => resp,
@@ -826,7 +835,7 @@ impl NodeRouter {
 
                 tracing::debug!("Sending newPayloadV3 to alive nodes");
                 let resps: Vec<PayloadStatusV1> =
-                    self.concurrent_requests(request, jwt_token.clone()).await;
+                    self.concurrent_requests(request, jwt_token.clone(), false).await;
 
                 let resp = match self.fcu_logic(&resps, request, jwt_token).await {
                     Ok(resp) => resp,
@@ -888,7 +897,7 @@ impl NodeRouter {
             | EngineMethod::engine_forkchoiceUpdatedV3 => {
                 tracing::debug!("Sending fcU to alive nodes");
                 let resps: Vec<forkchoiceUpdatedResponse> =
-                    self.concurrent_requests(request, jwt_token.clone()).await;
+                    self.concurrent_requests(request, jwt_token.clone(), false).await;
 
                 let mut payloadstatus_resps = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
                 let mut payload_id: Option<String> = None;
@@ -969,7 +978,7 @@ impl NodeRouter {
             } // fcU V1, V2
 
             EngineMethod::engine_getClientVersionV1 => {
-                let resps: Vec<serde_json::Value> = self.concurrent_requests(request, jwt_token).await;
+                let resps: Vec<serde_json::Value> = self.concurrent_requests(request, jwt_token, true).await;   // send to syncing nodes too
                 (make_response(&request.id, json!(resps)), 200)
             }
 
