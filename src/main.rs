@@ -190,20 +190,20 @@ fn parse_result(resp: &str) -> Result<serde_json::Value, ParseError> {
     let j = match serde_json::from_str::<serde_json::Value>(resp) {
         Ok(j) => j,
         Err(e) => {
-            tracing::error!("Error deserializing response: {}", e);
+            tracing::error!(reponse_body = ?resp, "Error deserializing response: {}", e);
             return Err(ParseError::InvalidJson);
         }
     };
 
     if let Some(error) = j.get("error") {
-        tracing::error!("Response has error: {}", error);
+        tracing::error!(reponse_body = ?resp, "Response has error: {}", error);
         return Err(ParseError::ElError);
     }
 
     let result = match j.get("result") {
         Some(result) => result,
         None => {
-            tracing::error!("Response has no result field");
+            tracing::error!(reponse_body = ?resp, "Response has no result field");
             return Err(ParseError::MethodNotFound);
         }
     };
