@@ -968,6 +968,11 @@ impl NodeRouter {
                 )
             } // fcU V1, V2
 
+            EngineMethod::engine_getClientVersionV1 => {
+                let resps: Vec<serde_json::Value> = self.concurrent_requests(request, jwt_token).await;
+                (make_response(&request.id, json!(resps)), 200)
+            }
+
             _ => {
                 // wait for primary node's response, but also send to all other nodes
                 let primary_node = match self.get_execution_node().await {

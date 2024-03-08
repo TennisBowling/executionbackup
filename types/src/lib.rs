@@ -313,6 +313,7 @@ pub enum EngineMethod {
     engine_newPayloadV3,
     engine_forkchoiceUpdatedV3,
     engine_getPayloadV3,
+    engine_getClientVersionV1,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
