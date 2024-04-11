@@ -397,6 +397,7 @@ impl NodeList {
         for node in self.nodes {
             if let Some(captures) = re.captures(&node) {
                 if let Some(jwt_path) = captures.get(1) {
+                    // We found a match, try to read the jwt
                     let jwt_secret = match read_jwt(jwt_path.as_str()) {
                         Ok(jwt_secret) => jwt_secret,
                         Err(e) => {
@@ -404,6 +405,7 @@ impl NodeList {
                             return Err(format!("Could not encode jwt secret: {}", e));
                         }
                     };
+                    // Remove the "#jwt-secret=" and initialize the node with the correct url
                     let node_str = re.replace(&node, "").to_string();
                     let node = Arc::new(Node::new(node_str, jwt_secret));
                     nodeinstances.push(node);

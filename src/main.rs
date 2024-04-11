@@ -357,22 +357,29 @@ impl NodeRouter {
 
         nodes
             .iter()
-            .for_each(|node| futs.push(node.do_request(request, jwt_token.clone())));
+            .for_each(|node| futs.push(async {
+                let start = std::time::Instant::now();
+                let response = node.do_request(request, jwt_token.clone()).await;
+                let resp_time = start.elapsed().as_millis();
+                return (response, node.url.clone(), resp_time)
+            }));
 
         let mut out = Vec::with_capacity(nodes.len());
-        let completed = join_all(futs).await;
+        let completed: Vec<(Result<String, reqwest::Error>, String, u128)> = join_all(futs).await;
         
 
-        for resp in completed {
-            match resp {
-                Ok(resp) => {
+        for resp_nodeurl_timing in completed {
+            tracing::debug!("Response from node {} took {}ms", resp_nodeurl_timing.1, resp_nodeurl_timing.2);
+            match resp_nodeurl_timing.0 {
+                Ok(resp_string) => {
                     // response from node
-                    let result = match parse_result(&resp.0) {
+                    let result = match parse_result(&resp_string) {
                         Ok(result) => result,
                         Err(e) => {
                             tracing::error!(
-                                "Couldn't parse node result for {:?}: {:?}",
+                                "Couldn't parse node result for {:?} from node {}: {:?}",
                                 request.method,
+                                resp_nodeurl_timing.1,  // node url
                                 e
                             );
                             continue;
@@ -385,8 +392,9 @@ impl NodeRouter {
                         }
                         Err(e) => {
                             tracing::error!(
-                                "Couldn't deserialize response {:?} from node to type {}: {}",
+                                "Couldn't deserialize response {:?} from node {} to type {}: {}",
                                 request.method,
+                                resp_nodeurl_timing.1,   // node url
                                 type_name::<T>(),
                                 e
                             );
@@ -394,7 +402,7 @@ impl NodeRouter {
                     }
                 }
                 Err(e) => {
-                    tracing::error!("{:?} error: {}", request.method, e);
+                    tracing::error!("{:?} error from node {}: {}", request.method, resp_nodeurl_timing.1, e);
                 }
             }
         }
@@ -652,6 +660,10 @@ impl NodeRouter {
         let req_clone = req.clone();
         tokio::spawn(async move {
             let syncing_nodes = syncing_nodes.read().await.clone();
+            if syncing_nodes.is_empty() {
+                return;
+            }
+
             tracing::debug!(
                 "Sending fcU or newPayload to {} syncing nodes",
                 syncing_nodes.len()
@@ -688,7 +700,7 @@ impl NodeRouter {
                 let resp = node.do_request_no_timeout(request, jwt_token).await; // no timeout since the CL will just time us out themselves
                 tracing::debug!("engine_getPayloadV1 sent to node: {}", node.url);
                 match resp {
-                    Ok(resp) => (resp.0, resp.1),
+                    Ok(resp) => return (resp, 200),
                     Err(e) => {
                         tracing::warn!("engine_getPayloadV1 error: {}", e);
 
@@ -1016,7 +1028,7 @@ impl NodeRouter {
 
                 // return resp from primary node
                 match resp {
-                    Ok(resp) => (resp.0, resp.1),
+                    Ok(resp) => (resp, 200),
                     Err(e) => {
                         tracing::warn!("Error from primary node: {}", e);
                         (make_error(&request.id, &e.to_string()), 200)
@@ -1047,7 +1059,7 @@ impl NodeRouter {
             .do_request_no_timeout_str(request, jwt_token)
             .await;
         match resp {
-            Ok(resp) => (resp.0, resp.1),
+            Ok(resp) => (resp, 200),
             Err(e) => (make_error(&1, &e.to_string()), 200),
         }
     }

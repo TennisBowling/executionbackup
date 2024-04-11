@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing;
 
+
 #[derive(Clone)]
 pub struct Node
 // represents an EE
@@ -111,7 +112,7 @@ impl Node {
         &self,
         data: &RpcRequest,
         jwt_token: String,
-    ) -> Result<(String, u16), reqwest::Error> {
+    ) -> Result<String, reqwest::Error> {
         let resp = self
             .client
             .post(&self.url)
@@ -130,16 +131,15 @@ impl Node {
             }
         };
 
-        let status = resp.status().as_u16();
         let resp_body = resp.text().await?;
-        Ok((resp_body, status))
+        Ok(resp_body)
     }
 
     pub async fn do_request_no_timeout(
         &self,
         data: &RpcRequest,
         jwt_token: String,
-    ) -> Result<(String, u16), reqwest::Error> {
+    ) -> Result<String, reqwest::Error> {
         let resp = self
             .client
             .post(&self.url)
@@ -157,16 +157,15 @@ impl Node {
             }
         };
 
-        let status = resp.status().as_u16();
         let resp_body = resp.text().await?;
-        Ok((resp_body, status))
+        Ok(resp_body)
     }
 
     pub async fn do_request_no_timeout_str(
         &self,
         data: String,
         jwt_token: String,
-    ) -> Result<(String, u16), reqwest::Error> {
+    ) -> Result<String, reqwest::Error> {
         let resp = self
             .client
             .post(&self.url)
@@ -184,8 +183,7 @@ impl Node {
             }
         };
 
-        let status = resp.status().as_u16();
         let resp_body = resp.text().await?;
-        Ok((resp_body, status))
+        Ok(resp_body)
     }
 }
