@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 rust:1.69.0 AS chef
+FROM --platform=linux/amd64 rust:1.77.2-bullseye AS chef
 ARG RELEASE_TAG
 WORKDIR /ebu
 RUN apt-get update && apt-get install -y git cmake clang pkg-config libssl-dev build-essential
