@@ -20,7 +20,6 @@ use tokio::time::Duration;
 const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
 
 lazy_static! {
-    static ref TIMEOUT: Duration = Duration::from_millis(7500);
     static ref JWT_HEADER: jsonwebtoken::Header = jsonwebtoken::Header::new(DEFAULT_ALGORITHM);
 }
 
@@ -383,8 +382,9 @@ impl NodeList {
     pub fn create_new_nodes(
         self,
         general_jwt: Option<jsonwebtoken::EncodingKey>,
+        general_timeout: Option<Duration>,
     ) -> Result<Vec<Arc<Node>>, String> {
-        let re = match Regex::new(r"#jwt-secret=(.*)") {
+        let jwt_re = match Regex::new(r"#jwt-secret=([^#]*)") {
             Ok(re) => re,
             Err(e) => {
                 tracing::error!("Failed to compile jwt matching secret: {}", e);
@@ -392,34 +392,59 @@ impl NodeList {
             }
         };
 
+        let timeout_re = match Regex::new(r"#timeout=([^#]*)") {
+            Ok(re) => re,
+            Err(e) => {
+                tracing::error!("Failed to compile timeout matching regex: {}", e);
+                return Err(format!("Failed to compile timeout matching regex: {}", e));
+            }
+        };
+
         let mut nodeinstances: Vec<Arc<Node>> = Vec::with_capacity(self.nodes.len());
 
         for node in self.nodes {
-            if let Some(captures) = re.captures(&node) {
+            let mut jwt_secret = None;
+            let mut timeout_duration = None;
+
+            if let Some(captures) = jwt_re.captures(&node) {
                 if let Some(jwt_path) = captures.get(1) {
-                    // We found a match, try to read the jwt
-                    let jwt_secret = match read_jwt(jwt_path.as_str()) {
-                        Ok(jwt_secret) => jwt_secret,
+                    jwt_secret = Some(match read_jwt(jwt_path.as_str()) {
+                        Ok(secret) => secret,
                         Err(e) => {
                             tracing::error!("Could not encode jwt secret: {}", e);
                             return Err(format!("Could not encode jwt secret: {}", e));
                         }
-                    };
-                    // Remove the "#jwt-secret=" and initialize the node with the correct url
-                    let node_str = re.replace(&node, "").to_string();
-                    let node = Arc::new(Node::new(node_str, jwt_secret));
-                    nodeinstances.push(node);
-                    continue;
+                    });
                 }
             } else if let Some(general_jwt) = &general_jwt {
-                nodeinstances.push(Arc::new(Node::new(node.to_string(), general_jwt.clone())))
-            } else {
-                tracing::error!("Node {} does not match specific or general jwt", node);
-                return Err(format!(
-                    "Node {} does nto match specific or general jwt",
-                    node
-                ));
+                jwt_secret = Some(general_jwt.clone());
             }
+            else {
+                tracing::error!("Node {} doesn't have a general or node-specific jwt to use", node);
+                return Err(format!("Node {} doesn't have a general or node-specific jwt to use", node));
+            }
+
+            if let Some(captures) = timeout_re.captures(&node) {
+                if let Some(timeout_str) = captures.get(1) {
+                    timeout_duration = Some(match timeout_str.as_str().parse::<u64>() {
+                        Ok(timeout) => Duration::from_millis(timeout),
+                        Err(e) => {
+                            tracing::error!("Could not parse timeout as int: {}", e);
+                            return Err(format!("Could not parse timeout as int: {}", e));
+                        }
+                    });
+                }
+            } else if let Some(general_timeout) = &general_timeout {
+                timeout_duration = Some(*general_timeout);
+            }
+            else {
+                tracing::error!("Node {} doesn't have a general or node-specific timeout to use", node);
+                return Err(format!("Node {} doesn't have a general or node-specific timeout to use", node));
+            }
+
+            let node_str = jwt_re.replace(&node, "").to_string();
+            let node_str = timeout_re.replace(&node_str, "").to_string();
+            nodeinstances.push(Arc::new(Node::new(node_str, jwt_secret.unwrap(), timeout_duration.unwrap())));
         }
 
         Ok(nodeinstances)

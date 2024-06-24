@@ -15,10 +15,11 @@ pub struct Node
     pub url: String,
     pub status: Arc<RwLock<NodeHealth>>,
     pub jwt_key: jsonwebtoken::EncodingKey,
+    pub timeout: Duration,
 }
 
 impl Node {
-    pub fn new(url: String, jwt_key: jsonwebtoken::EncodingKey) -> Node {
+    pub fn new(url: String, jwt_key: jsonwebtoken::EncodingKey, timeout: Duration) -> Node {
         let client = reqwest::Client::new();
         Node {
             client,
@@ -28,13 +29,14 @@ impl Node {
                 resp_time: 0,
             })),
             jwt_key,
+            timeout,
         }
     }
 
     pub async fn set_synced(&self) {
         let status = self.status.read().await;
         if status.status != SyncingStatus::Synced {
-            tracing::info!("Node {} is synced", self.url);
+            tracing::info!("Node {} is synced with a {}ms timeout", self.url, self.timeout.as_millis());
             drop(status);
             let mut status = self.status.write().await;
             status.status = SyncingStatus::Synced;
@@ -55,7 +57,7 @@ impl Node {
     pub async fn set_online_and_syncing(&self) {
         let status = self.status.read().await;
         if status.status != SyncingStatus::OnlineAndSyncing {
-            tracing::info!("Node {} is online and syncing", self.url);
+            tracing::info!("Node {} is online and syncing with a {}ms timeout", self.url, self.timeout.as_millis());
             drop(status);
             let mut status = self.status.write().await;
             status.status = SyncingStatus::OnlineAndSyncing;
@@ -72,7 +74,7 @@ impl Node {
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .json(&json!({"jsonrpc": "2.0", "method": "eth_syncing", "params": [], "id": 1}))
-            .timeout(*TIMEOUT)
+            .timeout(self.timeout)
             .send()
             .await;
         let resp_time = start.elapsed().as_micros();
@@ -119,7 +121,7 @@ impl Node {
             .header("Content-Type", "application/json")
             .header("Authorization", jwt_token)
             .body(data.as_bytes())
-            .timeout(*TIMEOUT)
+            .timeout(self.timeout)
             .send()
             .await;
 

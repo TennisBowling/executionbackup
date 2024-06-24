@@ -295,6 +295,7 @@ struct NodeRouter {
 
     // for if we want to use a general jwt with /create_node
     general_jwt: Option<jsonwebtoken::EncodingKey>,
+    general_timeout: Option<Duration>,
 }
 
 impl NodeRouter {
@@ -306,6 +307,7 @@ impl NodeRouter {
         node_timings_enabled: bool,
         fork_config: ForkConfig,
         general_jwt: Option<jsonwebtoken::EncodingKey>,
+        general_timeout: Option<Duration>,
     ) -> Self {
         NodeRouter {
             nodes: Arc::new(Mutex::new(nodes.clone())),
@@ -318,6 +320,7 @@ impl NodeRouter {
             node_timings_enabled,
             fork_config,
             general_jwt,
+            general_timeout,
         }
     }
 
@@ -361,7 +364,7 @@ impl NodeRouter {
                 let start = std::time::Instant::now();
                 let response = node.do_request(request, jwt_token.clone()).await;
                 let resp_time = start.elapsed().as_millis();
-                return (response, node.url.clone(), resp_time)
+                return (response, node.url.clone(), resp_time)  
             }));
 
         let mut out = Vec::with_capacity(nodes.len());
@@ -719,7 +722,7 @@ impl NodeRouter {
                 // so we should send this to all the nodes and then return the one with the highest blockValue
 
                 // WILLNOTFIX the spec require getPayloadV2 to support getPayloadResponseV1, but it adds too much complexity
-                // for little benefit, as I doubt people actually use getPayloadResponseV2 with getPayloadV2
+                // for little benefit, as I doubt people actually use getPayloadResponseV1 with getPayloadV2
                 let resps: Vec<getPayloadResponseV2> =
                     self.concurrent_requests(request, jwt_token, false).await;
                 let most_profitable = resps
@@ -1326,7 +1329,7 @@ async fn add_node(
     Extension(router): Extension<Arc<NodeRouter>>,
     extract::Json(request): extract::Json<NodeList>,
 ) -> impl IntoResponse {
-    let mut nodes = match request.create_new_nodes(router.general_jwt.clone()) {
+    let mut nodes = match request.create_new_nodes(router.general_jwt.clone(), router.general_timeout.clone()) {
         Ok(nodes) => nodes,
         Err(e) => {
             tracing::error!("Unable to create nodes from NodeList: {}", e);
@@ -1392,7 +1395,7 @@ async fn main() {
                 .short("j")
                 .long("jwt-secret")
                 .value_name("JWT")
-                .help("Path to JWT secret file")
+                .help("Path to a JWT secret file")
                 .takes_value(true)
                 .required(false),
         )
@@ -1406,11 +1409,18 @@ async fn main() {
                 .default_value("0.6"),
         )
         .arg(
+            clap::Arg::with_name("timeout")
+                .long("timeout")
+                .help("Default timeout for all node requests")
+                .takes_value(true)
+                .default_value("7500")
+        )
+        .arg(
             clap::Arg::with_name("listen-addr")
                 .short("addr")
                 .long("listen-addr")
                 .value_name("LISTEN")
-                .help("Address to listen on")
+                .help("Address to listen for requests on")
                 .takes_value(true)
                 .default_value("0.0.0.0"),
         )
@@ -1425,8 +1435,8 @@ async fn main() {
         )
         .arg(
             clap::Arg::with_name("node-timings")
-            .long("node-timings")
-            .help("Show node ping times")
+                .long("node-timings")
+                .help("Show node ping times")
         )
         .arg(
             clap::Arg::with_name("holesky")
@@ -1439,6 +1449,7 @@ async fn main() {
     let nodes = matches.value_of("nodes").unwrap();
     let jwt_secret_path = matches.value_of("jwt-secret");
     let fcu_majority = matches.value_of("fcu-majority").unwrap();
+    let timeout = matches.value_of("timeout");
     let listen_addr = matches.value_of("listen-addr").unwrap();
     let log_level = matches.value_of("log-level").unwrap();
     let node_timings_enabled = matches.is_present("node-timings");
@@ -1475,10 +1486,18 @@ async fn main() {
     let nodes = nodes.split(',').collect::<Vec<&str>>();
     let mut nodesinstances: Vec<Arc<Node>> = Vec::new();
 
-    let re = match Regex::new(r"#jwt-secret=(.*)") {
+    let jwt_re = match Regex::new(r"#jwt-secret=([^#]*)") {
         Ok(re) => re,
         Err(e) => {
-            tracing::error!("Failed to compile jwt matching secret: {}", e);
+            tracing::error!("Failed to compile jwt matching regex: {}", e);
+            return;
+        }
+    };
+
+    let timeout_re = match Regex::new(r"#timeout=([^#]*)") {
+        Ok(re) => re,
+        Err(e) => {
+            tracing::error!("Failed to compile timeout matching regex: {}", e);
             return;
         }
     };
@@ -1494,27 +1513,61 @@ async fn main() {
         });
     }
 
+    let mut general_timeout: Option<Duration> = None;
+    if let Some(general_node_timeout) = timeout {
+        let general_node_timeout = match general_node_timeout.parse::<u64>() {
+            Ok(gnt) => gnt,
+            Err(e) => {
+                tracing::error!("Could not parse timeout as int: {}", e);
+                return;
+            }
+        };
+        general_timeout = Some(Duration::from_millis(general_node_timeout));
+    }
+
     for node in nodes.clone() {
-        if let Some(captures) = re.captures(node) {
+        let mut jwt_secret = None;
+        let mut timeout_duration = None;
+
+        if let Some(captures) = jwt_re.captures(node) {
             if let Some(jwt_path) = captures.get(1) {
-                let jwt_secret = match read_jwt(jwt_path.as_str()) {
-                    Ok(jwt_secret) => jwt_secret,
+                jwt_secret = Some(match read_jwt(jwt_path.as_str()) {
+                    Ok(secret) => secret,
                     Err(e) => {
                         tracing::error!("Could not encode jwt secret: {}", e);
                         return;
                     }
-                };
-                let node_str = re.replace(node, "").to_string();
-                let node = Arc::new(Node::new(node_str, jwt_secret));
-                nodesinstances.push(node);
-                continue;
+                });
             }
         } else if let Some(general_jwt) = &general_jwt {
-            nodesinstances.push(Arc::new(Node::new(node.to_string(), general_jwt.clone())))
-        } else {
-            tracing::error!("Node {} does not match specific or general jwt", node);
+            jwt_secret = Some(general_jwt.clone());
+        }
+        else {
+            tracing::error!("Node {} doesn't have a general or node-specific jwt to use", node);
             return;
         }
+
+        if let Some(captures) = timeout_re.captures(node) {
+            if let Some(timeout_str) = captures.get(1) {
+                timeout_duration = Some(match timeout_str.as_str().parse::<u64>() {
+                    Ok(timeout) => Duration::from_millis(timeout),
+                    Err(e) => {
+                        tracing::error!("Could not parse timeout as int: {}", e);
+                        return;
+                    }
+                });
+            }
+        } else if let Some(general_timeout) = &general_timeout {
+            timeout_duration = Some(*general_timeout);
+        }
+        else {
+            tracing::error!("Node {} doesn't have a general or node-specific timeout to use", node);
+            return;
+        }
+
+        let node_str = jwt_re.replace(node, "").to_string();
+        let node_str = timeout_re.replace(&node_str, "").to_string();
+        nodesinstances.push(Arc::new(Node::new(node_str, jwt_secret.unwrap(), timeout_duration.unwrap())));
     }
 
     let fork_config = match is_holesky {
@@ -1539,6 +1592,7 @@ async fn main() {
         node_timings_enabled,
         fork_config,
         general_jwt,
+        general_timeout,
     ));
 
     // setup backround task to check if nodes are alive

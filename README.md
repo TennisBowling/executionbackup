@@ -46,6 +46,12 @@ Or to use specific jwt secrets for each node:
 ```
 executionbackup --nodes http://localhost:8551#jwt-secret=/path/to/jwt_secret
 ```
+  
+You can also setup per-node timeouts, overriding the global `--timeout` for individual nodes by appending
+```
+#timeout=timeoutinms
+```
+to the node url, similar to the jwt-secret overriding above.
 
 ### Consensus Layer:
 Now set your Consensus Layer client to connect to ExecutionBackup:
@@ -83,7 +89,7 @@ struct MetricsReport {
     alive_nodes: Array<String>,             // EL nodes that are alive
     syncing_nodes: Array<String>,           // EL nodes that are syncing
     dead_nodes: Array<String>,              // EL nodes that are dead (not responding)
-    primary_node: String,                   // EL node selected for non-engine requests
+    primary_node: String,                   // EL node selected for additional non-engine requests
 }
 ```
 --- 
@@ -107,7 +113,7 @@ struct RecheckMetricsReport {
     alive_nodes: Array<String>,             // EL nodes that are alive
     syncing_nodes: Array<String>,           // EL nodes that are syncing
     dead_nodes: Array<String>,              // EL nodes that are dead (not responding)
-    primary_node: String,                   // EL node selected for non-engine 
+    primary_node: String,                   // EL node selected for additional non-engine requests 
     recheck_time: u128,                     // Time in microseconds it took to recheck the EL nodes
 }
 ```
@@ -138,7 +144,7 @@ struct RecheckMetricsReport {
     alive_nodes: Array<String>,             // EL nodes that are alive
     syncing_nodes: Array<String>,           // EL nodes that are syncing
     dead_nodes: Array<String>,              // EL nodes that are dead (not responding)
-    primary_node: String,                   // EL node selected for non-engine 
+    primary_node: String,                   // EL node selected for additional non-engine requests 
     recheck_time: u128,                     // Time in microseconds it took to recheck the EL nodes
 }
 ```
