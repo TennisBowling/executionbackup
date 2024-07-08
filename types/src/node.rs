@@ -8,6 +8,12 @@ use tracing;
 
 
 #[derive(Clone)]
+pub struct NodeHealth {
+    pub status: SyncingStatus,
+    pub resp_time: u128,
+}
+
+#[derive(Clone)]
 pub struct Node
 // represents an EE
 {
@@ -16,10 +22,11 @@ pub struct Node
     pub status: Arc<RwLock<NodeHealth>>,
     pub jwt_key: jsonwebtoken::EncodingKey,
     pub timeout: Duration,
+    pub do_not_use: bool, 
 }
 
 impl Node {
-    pub fn new(url: String, jwt_key: jsonwebtoken::EncodingKey, timeout: Duration) -> Node {
+    pub fn new(url: String, jwt_key: jsonwebtoken::EncodingKey, timeout: Duration, do_not_use: bool) -> Node {
         let client = reqwest::Client::new();
         Node {
             client,
@@ -30,10 +37,16 @@ impl Node {
             })),
             jwt_key,
             timeout,
+            do_not_use,
         }
     }
 
     pub async fn set_synced(&self) {
+        if self.do_not_use {        // keep nodes that are marked not-for-use synced but never set them as online
+            self.set_online_and_syncing().await;
+            return;
+        }
+
         let status = self.status.read().await;
         if status.status != SyncingStatus::Synced {
             tracing::info!("Node {} is synced with a {}ms timeout", self.url, self.timeout.as_millis());

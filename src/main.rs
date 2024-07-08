@@ -8,6 +8,7 @@ use axum::{
 use ethereum_types::{H256, U256};
 use futures::future::join_all;
 
+use node::NodeHealth;
 use serde_json::json;
 use std::{any::type_name, collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::{
@@ -1567,7 +1568,9 @@ async fn main() {
 
         let node_str = jwt_re.replace(node, "").to_string();
         let node_str = timeout_re.replace(&node_str, "").to_string();
-        nodesinstances.push(Arc::new(Node::new(node_str, jwt_secret.unwrap(), timeout_duration.unwrap())));
+        let do_not_use = node_str.contains("#do-not-use");
+        let node_str = node_str.replace("#do-not-use", "");
+        nodesinstances.push(Arc::new(Node::new(node_str, jwt_secret.unwrap(), timeout_duration.unwrap(), do_not_use)));
     }
 
     let fork_config = match is_holesky {

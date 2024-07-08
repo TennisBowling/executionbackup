@@ -286,12 +286,6 @@ pub enum ParseError {
     ElError,
 }
 
-#[derive(Clone)]
-pub struct NodeHealth {
-    pub status: SyncingStatus,
-    pub resp_time: u128,
-}
-
 pub struct NodeTiming {
     pub node: String,
     pub resp_time: u128,
@@ -444,7 +438,9 @@ impl NodeList {
 
             let node_str = jwt_re.replace(&node, "").to_string();
             let node_str = timeout_re.replace(&node_str, "").to_string();
-            nodeinstances.push(Arc::new(Node::new(node_str, jwt_secret.unwrap(), timeout_duration.unwrap())));
+            let do_not_use = node_str.contains("#do-not-use");
+            let node_str = node_str.replace("#do-not-use", "");
+            nodeinstances.push(Arc::new(Node::new(node_str, jwt_secret.unwrap(), timeout_duration.unwrap(), do_not_use)));
         }
 
         Ok(nodeinstances)

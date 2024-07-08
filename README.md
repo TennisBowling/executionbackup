@@ -38,21 +38,34 @@ The EL must use the same jwt as ExecutionBackup:
 ```bash
 geth --authrpc.jwtsecret /path/to/jwt_secret ...
 ```
+
 ### ExecutionBackup:
 ```bash
 executionbackup --nodes http://localhost:8551 --jwt-secret /path/to/jwt_secret
 ```
-Or to use specific jwt secrets for each node:
-```
-executionbackup --nodes http://localhost:8551#jwt-secret=/path/to/jwt_secret
-```
-  
-You can also setup per-node timeouts, overriding the global `--timeout` for individual nodes by appending
-```
-#timeout=timeoutinms
-```
-to the node url, similar to the jwt-secret overriding above.
 
+
+### Per-node Settings:
+
+You can also use per-node jwt secrets:
+```
+executionbackup --nodes http://localhost:8551#jwt-secret=/path/to/jwt_secret,https://127.0.0.1:8552/#jwt-secret=/path/to/jwt_secret2
+```
+---
+
+You can also override the global `--timeout` and set per-node timeouts:
+```
+#timeout=timeout_in_ms
+executionbackup --nodes http://localhost:8551#timeout=3000,https://127.0.0.1:8552/#jwt-secret=/path/to/jwt_secret2#timeout=5200
+```
+In this example, `localhost:8551` has a timeout of 3s, while `127.0.0.1:8552` has a timeout of 5.2s and a custom jwt secret path of `/path/to/jwt_secret2`
+
+---
+
+Additionally, a node can be marked as "not for use" in the primary forkchoice and newpayload responses  
+by simply appending `#do-not-use` to the node url, similarly to per-node jwt secrets and timeouts.
+
+---
 ### Consensus Layer:
 Now set your Consensus Layer client to connect to ExecutionBackup:
 ```bash
