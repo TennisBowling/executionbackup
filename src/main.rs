@@ -51,7 +51,6 @@ pub fn newpayload_serializer(
     let params = match request.params.as_array_mut() {
         Some(params_vec) => params_vec,
         None => {
-            tracing::error!("Could not serialize newPayload's params into a vec.");
             return Err("Could not serialize newPayload's params into a vec".to_string());
         }
     };
@@ -59,7 +58,6 @@ pub fn newpayload_serializer(
     if request.method == EngineMethod::engine_newPayloadV3 {
         // params will have 3 fields: [ExecutionPayloadV3, expectedBlobVersionedHashes, ParentBeaconBlockRoot]
         if params.len() != 3 {
-            tracing::error!("newPayloadV3's params did not have 3 elements.");
             return Err("newPayloadV3's params did not have 3 elements.".to_string());
         }
 
@@ -587,39 +585,57 @@ impl NodeRouter {
     // if there is no majority, then return None
     // if there is a draw, just return the first response
     // u64 on the response should be the "id" field from the any of the responses
-    fn fcu_majority(&self, results: &Vec<PayloadStatusV1>) -> Option<PayloadStatusV1> {
+    fn fcu_majority(&self, results: &mut Vec<PayloadStatusV1>) -> Option<PayloadStatusV1> {
         let total_responses = results.len();
-        let majority_count = (total_responses as f32 * self.majority_percentage) as usize;
-
+        let majority_count = (total_responses as f32 * self.majority_percentage).round() as usize;
+    
+        let validation_error = results.iter().find(|x| x.validation_error.is_some()).cloned();
+    
         // Create a hashmap to store response frequencies
         let mut response_counts: HashMap<&PayloadStatusV1, usize> = HashMap::new();
-
-        for response in results.iter() {
+    
+        for response in results.iter_mut() {
+            response.validation_error = None;   // so we compare status and latest valid hash
             *response_counts.entry(response).or_insert(0) += 1;
         }
-
+    
         // Find the response with the most occurrences
         let mut majority_response = None;
         let mut max_count = 0;
-
-        for (response, &count) in response_counts.iter() {
+    
+        for (response, count) in response_counts.into_iter() {
             if count > max_count {
                 majority_response = Some(response);
                 max_count = count;
             }
         }
-
+    
         // Check if the majority count is greater than or equal to the required count
         if max_count >= majority_count {
-            majority_response.cloned().cloned()
+            if let Some(mut maj_response) = majority_response.cloned() {
+                match maj_response.status {
+                    // Spec says there's only a reason on INVALID
+                    PayloadStatusV1Status::Invalid | PayloadStatusV1Status::InvalidBlockHash => {
+                        if let Some(validation_err) = validation_error {
+                            maj_response.validation_error = validation_err.validation_error;
+                        }
+                    },
+                    _ => {},
+                }
+    
+                return Some(maj_response);
+            }
+    
+            majority_response.cloned()
         } else {
             None
         }
     }
 
+
     async fn fcu_logic(
         &self,
-        resps: &Vec<PayloadStatusV1>,
+        resps: &mut Vec<PayloadStatusV1>,
         req: &RpcRequest,
         jwt_token: String,
     ) -> Result<PayloadStatusV1, FcuLogicError> {
@@ -633,7 +649,7 @@ impl NodeRouter {
             Some(majority) => majority,
             None => {
                 // no majority, so return SYNCING
-                tracing::error!("No majority, returning SYNCING.");
+                tracing::warn!("No majority, returning SYNCING.");
                 return Err(FcuLogicError::NoMajority);
             }
         };
@@ -641,9 +657,10 @@ impl NodeRouter {
         match majority.status {
             PayloadStatusV1Status::Invalid | PayloadStatusV1Status::InvalidBlockHash => {
                 // majority is INVALID, so return INVALID (to not go through the next parts of the algorithm)
+                tracing::warn!(validation_error=?majority.validation_error, "Majority responses are INVALID");
                 return Ok(majority); // return Ok since this is not an error
             }
-            _ => {} // there still can be invalid in the responses
+            _ => {} // there still can be invalid in the individual responses
         }
 
         for resp in resps {
@@ -652,6 +669,7 @@ impl NodeRouter {
             match resp.status {
                 PayloadStatusV1Status::Invalid | PayloadStatusV1Status::InvalidBlockHash => {
                     // a response is INVALID. One node could be right, no risks, return syncing to stall CL
+                    tracing::warn!(validation_error=?resp.validation_error, "At least one response was INVALID");
                     return Err(FcuLogicError::OneNodeIsInvalid);
                 }
                 _ => {}
@@ -677,8 +695,7 @@ impl NodeRouter {
                 syncing_nodes
                     .iter()
                     .map(|node| node.do_request_no_timeout(&req_clone, jwt_token_clone.clone())),
-            )
-            .await;
+            ).await;
         });
 
         // majority is checked and either VALID or SYNCING
@@ -782,10 +799,10 @@ impl NodeRouter {
 
             EngineMethod::engine_newPayloadV1 | EngineMethod::engine_newPayloadV2 => {
                 tracing::debug!("Sending newPayloadV1|V2 to alive nodes");
-                let resps: Vec<PayloadStatusV1> =
+                let mut resps: Vec<PayloadStatusV1> =
                     self.concurrent_requests(request, jwt_token.clone(), false).await;
 
-                let resp = match self.fcu_logic(&resps, request, jwt_token).await {
+                let resp = match self.fcu_logic(&mut resps, request, jwt_token).await {
                     Ok(resp) => resp,
                     Err(e) => match e {
                         FcuLogicError::NoResponses => {
@@ -850,10 +867,10 @@ impl NodeRouter {
                 };
 
                 tracing::debug!("Sending newPayloadV3 to alive nodes");
-                let resps: Vec<PayloadStatusV1> =
+                let mut resps: Vec<PayloadStatusV1> =
                     self.concurrent_requests(request, jwt_token.clone(), false).await;
 
-                let resp = match self.fcu_logic(&resps, request, jwt_token).await {
+                let resp = match self.fcu_logic(&mut resps, request, jwt_token).await {
                     Ok(resp) => resp,
                     Err(e) => match e {
                         FcuLogicError::NoResponses => {
@@ -927,7 +944,7 @@ impl NodeRouter {
                 }
 
                 let resp = match self
-                    .fcu_logic(&payloadstatus_resps, request, jwt_token)
+                    .fcu_logic(&mut payloadstatus_resps, request, jwt_token)
                     .await
                 {
                     Ok(resp) => resp,

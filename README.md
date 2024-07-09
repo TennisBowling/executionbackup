@@ -1,8 +1,8 @@
 # ExecutionBackup
-A Ethereum execution layer multiplexer enabling execution node failover and multiplexing.
+An Ethereum execution layer multiplexer enabling execution node failover and multiplexing.
 
 ## Installing
-EB has provided releases for Linux, Windows, and MacOS.
+ExecutionBackup (EB), has provided releases for Linux, Windows, and MacOS.
 You can download the latest release [here](https://github.com/tennisbowling/executionbackup/releases/latest).
 
 You can also build from source using the following commands:
@@ -15,19 +15,16 @@ Replace `make build` with `cargo build --profile highperf --target-dir bin` for 
 
 You'll then find the `executionbackup` executable in the `bin/` directory.
 
+### ExecutionBackup Dockerized
+
+You can run a docker-compose enabled version of the tool by making use of the dockerized folder.
+
 ## Basic Usage
 ```bash
 executionbackup --nodes http://node1:port,http://node2:port --jwt-secret /path/to/jwt_secret
 ```
 
 Then set your Consensus Layer client (prysm, lighthouse, nimbus, etc) to connect to EB instead of the EL.
-
-## Configuration
-You can also use different jwt secrets for each node:
-```
-executionbackup --nodes http://node1:port#jwt-secret=/path/to/jwt_secret,http://node2:port#jwt-secret=/path/to/jwt_secret2
-```
-`http://node1:port` and `http://node2.port` are the authrpc (generally port 8551) endpoints for the Execution Layer nodes.  
 
 ## Example
 Example: `http://localhost:8551` to connect to a local EL node.
@@ -43,7 +40,22 @@ geth --authrpc.jwtsecret /path/to/jwt_secret ...
 ```bash
 executionbackup --nodes http://localhost:8551 --jwt-secret /path/to/jwt_secret
 ```
+### Consensus Layer:
+Now set your Consensus Layer client to connect to ExecutionBackup:
+```bash
+lighthouse bn --execution-endpoint http://localhost:7000
+```
+Default port for EB is 7000, but you can change it with the `--port` flag.
+  
+Now you have a multiplexed Execution Layer that can failover to another node if one goes down, and protects you against possible EL errors!
 
+
+## Configuration
+You can also use different jwt secrets for each node:
+```
+executionbackup --nodes http://node1:port#jwt-secret=/path/to/jwt_secret,http://node2:port#jwt-secret=/path/to/jwt_secret2
+```
+`http://node1:port` and `http://node2.port` are the authrpc (generally port 8551) endpoints for the Execution Layer nodes.  
 
 ### Per-node Settings:
 
@@ -66,16 +78,33 @@ Additionally, a node can be marked as "not for use" in the primary forkchoice an
 by simply appending `#do-not-use` to the node url, similarly to per-node jwt secrets and timeouts.
 
 ---
-### Consensus Layer:
-Now set your Consensus Layer client to connect to ExecutionBackup:
-```bash
-lighthouse bn --execution-endpoint http://localhost:7000
-```
-Default port for EB is 7000, but you can change it with the `--port` flag.
+
+## How it works
+ExecutionBackup will recieve requests from the CL to evaluate if a block is valid. EB then sends that request to every Execution Layer client you connected it to, and recieves the "PayloadStatus". The possible options for the status are: 
+- The block is valid,
+- The block is invalid,
+- The EL is still syncing and can't approve or deny the block.
+
+EB then gets a list of responses from the ELs. It decides how many responses need to be the same to call it a majority by:  
+- Getting the number of EL responses it got
+- Multiplying it by the percentage set by `--fcu-majority` (default 0.6)
+- Rounding it
+
+If the number of responses that are the same (majority) is greater than or equal to the number defined above, we deem that a majority.  
+  
+
+Now, we must choose what to actually return to the CL:
+If there are no responses from any EL or no majority, then we return SYNCING to the CL.  
+If the majority is INVALID, we directly return that to the CL.  
+If **ANY** EL response is INVALID (even if the majority is VALID), we return SYNCING to the CL.  
+  
+If we're here, the majority is either VALID or SYNCING, and there are no INVALIDS from any EL, so we return the majority to the CL.  
+  
+> Note: Returning SYNCING to the EL is a safe bet, as it puts the CL in optimistic mode, where it does not perform any validator duties, guaranteeing you cannot get slashed. However, you will get inactivity penalties (although they are drastically less than slashing).
+
+You can try *all* this logic out by visiting the [Playground](https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=d251f388ec01380cd2bb64b00c1022b9).
 
   
-Now you have a multiplexed Execution Layer that can failover to another node if one goes down, and protects you against possible EL errors!
-
 
 # API
 ExecutionBackup has a REST API that can be used to get information about the EL nodes and the current state of the multiplexer.
@@ -162,28 +191,7 @@ struct RecheckMetricsReport {
 }
 ```
 
-# How it works
-EB multiplexes multiple EL's together.
-Truth Table for responses to CL when EL's are different:
-| EL1     | EL2     | EL3     | RESULT  |
-|---------|---------|---------|---------|
-| VALID   | VALID   | VALID   | VALID   |
-| INVALID | INVALID | INVALID | INVALID |
-| VALID   | VALID   | SYNCING | VALID   |
-| VALID   | VALID   | INVALID | SYNCING |
-| INVALID | INVALID | VALID   | INVALID |
-| INVALID | INVALID | SYNCING | INVALID |
-
-* Results of SYNCING are checked to verify if payload.block_hash is equal to keccak256(rlp(block_header)) to not get inconsistent block hashes in a supermajority.  
-* Rows 3, 5, 6 are determined by the fcu-invalid-threshold parameter that determins what percentage of EL's are needed to be considered a majority and be the result.  
-  
-[Here](https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=17b1a6038975267f9b1f61529cc4ca4c) is a rust playground where you can test the multiplexer logic.
-
-# Execution API backup Dockerized
-
-You can run a docker-compose enabled version of the tool by making use of the dockerized folder
-
-# Testing
+## Testing
 ```bash
 cargo test --all
 ```
