@@ -699,6 +699,10 @@ impl NodeRouter {
         });
 
         // majority is checked and either VALID or SYNCING
+        if majority.status == PayloadStatusV1Status::Syncing {
+            tracing::warn!("Majority is SYNCING");
+        };
+
         Ok(majority)
     }
 
