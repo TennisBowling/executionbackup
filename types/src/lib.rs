@@ -5,7 +5,7 @@ use jsonwebtoken::EncodingKey;
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
 use ssz_types::{
-    typenum::{U1048576, U1073741824},
+    typenum::{U1048576, U1073741824, U8192, U16},
     VariableList,
 };
 use std::{collections::HashMap, sync::Arc};
@@ -100,26 +100,30 @@ pub enum ForkName {
     Merge,
     Shanghai,
     Cancun,
+    Prague,
 }
 
 pub struct ForkConfig {
     //  pub MERGE_FORK_EPOCH: Option<u64> = Some(144896);
-    pub shanghai_fork_epoch: Option<u64>,
-    pub cancun_fork_epoch: Option<u64>,
+    pub shanghai_fork_epoch: u64,
+    pub cancun_fork_epoch: u64,
+    pub prague_fork_epoch: u64,
 }
 
 impl ForkConfig {
     pub fn mainnet() -> Self {
         ForkConfig {
-            shanghai_fork_epoch: Some(194048),
-            cancun_fork_epoch: Some(269568),
+            shanghai_fork_epoch: 194048,
+            cancun_fork_epoch: 269568,
+            prague_fork_epoch: 99999999999999,
         }
     }
 
     pub fn holesky() -> Self {
         ForkConfig {
-            shanghai_fork_epoch: Some(256),
-            cancun_fork_epoch: Some(29696),
+            shanghai_fork_epoch: 256,
+            cancun_fork_epoch: 29696,
+            prague_fork_epoch: 99999999999999,
         }
     }
 }
@@ -138,8 +142,33 @@ pub struct QuantityU64 {
     pub value: u64,
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositRequest {
+    /*
+    pubkey: DATA, 48 Bytes
+    withdrawalCredentials: DATA, 32 Bytes
+    amount: QUANTITY, 64 Bits
+    signature: DATA, 96 Bytes
+    index: QUANTITY, 64 Bits
+    Note: The amount value is represented in Gwei. */
+    pub placeholder: String,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WithdrawalRequest {
+    pub source_address: Address,
+    pub validator_pubkey: String,                // TODO: placeholder
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub amount: u64,
+}
+
+
+// TODO: consider not using getter(copy) here. Not sure that we need the Result<T, E> instead of Result<&T, E>
+
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2, V3, V4),
     variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
 )]
 #[derive(Serialize, Deserialize, Clone)]
@@ -178,14 +207,18 @@ pub struct ExecutionPayload {
     pub block_hash: H256,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: VariableList<VariableList<u8, U1073741824>, U1048576>, // larger one is max bytes per transaction, smaller one is max transactions per payload
-    #[superstruct(only(V2, V3))]
+    #[superstruct(only(V2, V3, V4))]
     pub withdrawals: Vec<Withdrawal>,
-    #[superstruct(only(V3), partial_getter(copy))]
+    #[superstruct(only(V3, V4), partial_getter(copy))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(only(V3), partial_getter(copy))]
+    #[superstruct(only(V3, V4), partial_getter(copy))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
+    #[superstruct(only(V4))]
+    pub deposit_requests: VariableList<DepositRequest, U8192>,
+    #[superstruct(only(V4))]
+    pub withdrawal_requests: VariableList<WithdrawalRequest, U16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -307,6 +340,7 @@ pub enum EngineMethod {
     engine_forkchoiceUpdatedV3,
     engine_getPayloadV3,
     engine_getClientVersionV1,
+    engine_newPayloadV4,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

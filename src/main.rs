@@ -24,15 +24,16 @@ use verify_hash::verify_payload_block_hash;
 const VERSION: &str = "1.2.0";
 
 pub fn fork_name_at_epoch(epoch: u64, fork_config: &ForkConfig) -> ForkName {
-    if let Some(fork_epoch) = fork_config.cancun_fork_epoch {
-        if epoch >= fork_epoch {
-            return ForkName::Cancun;
-        }
+    if epoch >= fork_config.prague_fork_epoch {
+        return ForkName::Prague;
     }
-    if let Some(fork_epoch) = fork_config.shanghai_fork_epoch {
-        if epoch >= fork_epoch {
-            return ForkName::Shanghai;
-        }
+
+    if epoch >= fork_config.cancun_fork_epoch {
+        return ForkName::Cancun;
+    }
+
+    if epoch >= fork_config.shanghai_fork_epoch {
+        return ForkName::Shanghai;
     }
     ForkName::Merge
 }
@@ -55,23 +56,40 @@ pub fn newpayload_serializer(
         }
     };
 
-    if request.method == EngineMethod::engine_newPayloadV3 {
-        // params will have 3 fields: [ExecutionPayloadV3, expectedBlobVersionedHashes, ParentBeaconBlockRoot]
+    if request.method == EngineMethod::engine_newPayloadV3 || request.method == EngineMethod::engine_newPayloadV4 {
+        // params will have 3 fields: [ExecutionPayloadV3 | ExecutionPayloadV4 , expectedBlobVersionedHashes, ParentBeaconBlockRoot]
         if params.len() != 3 {
             return Err("newPayloadV3's params did not have 3 elements.".to_string());
         }
 
-        let execution_payload: ExecutionPayloadV3 = match serde_json::from_value(params[0].take()) {
-            // direct getting is safe here since we checked that we have least 3 elements
-            Ok(execution_payload) => execution_payload,
-            Err(e) => {
-                tracing::error!(
-                    "Could not serialize ExecutionPayload from newPayloadV3: {}",
-                    e
-                );
-                return Err("Could not serialize ExecutionPayload".to_string());
-            }
-        };
+        let execution_payload: ExecutionPayload;
+
+        if request.method == EngineMethod::engine_newPayloadV3 {
+            execution_payload = ExecutionPayload::V3(match serde_json::from_value(params[0].take()) {
+                // direct getting is safe here since we checked that we have least 3 elements
+                Ok(execution_payload) => execution_payload,
+                Err(e) => {
+                    tracing::error!(
+                        "Could not serialize ExecutionPayload from newPayloadV3: {}",
+                        e
+                    );
+                    return Err("Could not serialize ExecutionPayload".to_string());
+                }
+            });
+        }
+        else {
+            execution_payload = ExecutionPayload::V4(match serde_json::from_value(params[0].take()) {
+                // direct getting is safe here since we checked that we have least 3 elements
+                Ok(execution_payload) => execution_payload,
+                Err(e) => {
+                    tracing::error!(
+                        "Could not serialize ExecutionPayload from newPayloadV4: {}",
+                        e
+                    );
+                    return Err("Could not serialize ExecutionPayload".to_string());
+                }
+            });
+        }
 
         let versioned_hashes: Vec<H256> = match serde_json::from_value(params[1].take()) {
             Ok(versioned_hashes) => versioned_hashes,
@@ -96,7 +114,7 @@ pub fn newpayload_serializer(
         };
 
         return Ok(NewPayloadRequest {
-            execution_payload: types::ExecutionPayload::V3(execution_payload),
+            execution_payload,
             expected_blob_versioned_hashes: Some(versioned_hashes),
             parent_beacon_block_root: Some(parent_beacon_block_root),
         });
@@ -158,16 +176,8 @@ pub fn newpayload_serializer(
                 }
             }
         }
-        ForkName::Cancun => match serde_json::from_value::<ExecutionPayloadV3>(params[0].take()) {
-            Ok(execution_payload) => ExecutionPayload::V3(execution_payload),
-            Err(e) => {
-                tracing::error!(
-                        "Could not serialize ExecutionPayloadV3 from newPayloadV3; Cancun fork. Error: {}",
-                        e
-                    );
-                return Err("Could not serialize ExecutionPayload.".to_string());
-            }
-        },
+        ForkName::Cancun => unreachable!("File an issue on github. This should never happen. Matched Cancun fork name even though didn't match previous if newPayloadV3 or params.len != 1."),
+        ForkName::Prague => unreachable!("File an issue on github. This should never happen. Matched Prague fork name even though didn't match previous if newPayloadV3 or params.len != 1."),
     };
 
     Ok(NewPayloadRequest {
@@ -861,16 +871,16 @@ impl NodeRouter {
                 (make_response(&request.id, json!(resp)), 200)
             } // newPayloadV1, V2
 
-            EngineMethod::engine_newPayloadV3 => {
+            EngineMethod::engine_newPayloadV3 | EngineMethod::engine_newPayloadV4 => {
                 let newpayload_request = match newpayload_serializer(request.clone(), fork_config) {
                     Ok(newpayload_request) => newpayload_request,
                     Err(e) => {
-                        tracing::error!("Failed to serialize newPayloadV3: {}", e);
-                        return ("Failed to serialize newPayloadV3".to_string(), 500);
+                        tracing::error!("Failed to serialize newPayloadV3|4: {}", e);
+                        return ("Failed to serialize newPayloadV3|4".to_string(), 500);
                     }
                 };
 
-                tracing::debug!("Sending newPayloadV3 to alive nodes");
+                tracing::debug!("Sending newPayloadV3|4 to alive nodes");
                 let mut resps: Vec<PayloadStatusV1> =
                     self.concurrent_requests(request, jwt_token.clone(), false).await;
 
