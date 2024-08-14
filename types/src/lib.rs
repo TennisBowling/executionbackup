@@ -5,7 +5,7 @@ use jsonwebtoken::EncodingKey;
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
 use ssz_types::{
-    typenum::{U1048576, U1073741824, U8192, U16},
+    typenum::{U1048576, U1073741824, U16, U8192},
     VariableList,
 };
 use std::{collections::HashMap, sync::Arc};
@@ -163,7 +163,6 @@ pub struct WithdrawalRequest {
     pub amount: u64,
 }
 
-
 // TODO: take a look at this. also try to fix the Vec<u8> into a better type for this and Withdrawal + DepositRequests
 #[derive(Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -227,7 +226,7 @@ pub struct ExecutionPayload {
     pub deposit_requests: VariableList<DepositRequest, U8192>,
     #[superstruct(only(V4))]
     pub withdrawal_requests: VariableList<WithdrawalRequest, U16>,
-    #[superstruct(only(V4))]    // TODO: Turn this into a VariableList
+    #[superstruct(only(V4))] // TODO: Turn this into a VariableList
     pub consolidation_requests: Vec<ConsolidationRequest>,
 }
 
@@ -461,10 +460,15 @@ impl NodeList {
                 }
             } else if let Some(general_jwt) = &general_jwt {
                 jwt_secret = Some(general_jwt.clone());
-            }
-            else {
-                tracing::error!("Node {} doesn't have a general or node-specific jwt to use", node);
-                return Err(format!("Node {} doesn't have a general or node-specific jwt to use", node));
+            } else {
+                tracing::error!(
+                    "Node {} doesn't have a general or node-specific jwt to use",
+                    node
+                );
+                return Err(format!(
+                    "Node {} doesn't have a general or node-specific jwt to use",
+                    node
+                ));
             }
 
             if let Some(captures) = timeout_re.captures(&node) {
@@ -479,17 +483,27 @@ impl NodeList {
                 }
             } else if let Some(general_timeout) = &general_timeout {
                 timeout_duration = Some(*general_timeout);
-            }
-            else {
-                tracing::error!("Node {} doesn't have a general or node-specific timeout to use", node);
-                return Err(format!("Node {} doesn't have a general or node-specific timeout to use", node));
+            } else {
+                tracing::error!(
+                    "Node {} doesn't have a general or node-specific timeout to use",
+                    node
+                );
+                return Err(format!(
+                    "Node {} doesn't have a general or node-specific timeout to use",
+                    node
+                ));
             }
 
             let node_str = jwt_re.replace(&node, "").to_string();
             let node_str = timeout_re.replace(&node_str, "").to_string();
             let do_not_use = node_str.contains("#do-not-use");
             let node_str = node_str.replace("#do-not-use", "");
-            nodeinstances.push(Arc::new(Node::new(node_str, jwt_secret.unwrap(), timeout_duration.unwrap(), do_not_use)));
+            nodeinstances.push(Arc::new(Node::new(
+                node_str,
+                jwt_secret.unwrap(),
+                timeout_duration.unwrap(),
+                do_not_use,
+            )));
         }
 
         Ok(nodeinstances)

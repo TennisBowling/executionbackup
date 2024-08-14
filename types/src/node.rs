@@ -6,7 +6,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing;
 
-
 #[derive(Clone)]
 pub struct NodeHealth {
     pub status: SyncingStatus,
@@ -22,11 +21,16 @@ pub struct Node
     pub status: Arc<RwLock<NodeHealth>>,
     pub jwt_key: jsonwebtoken::EncodingKey,
     pub timeout: Duration,
-    pub do_not_use: bool, 
+    pub do_not_use: bool,
 }
 
 impl Node {
-    pub fn new(url: String, jwt_key: jsonwebtoken::EncodingKey, timeout: Duration, do_not_use: bool) -> Node {
+    pub fn new(
+        url: String,
+        jwt_key: jsonwebtoken::EncodingKey,
+        timeout: Duration,
+        do_not_use: bool,
+    ) -> Node {
         let client = reqwest::Client::new();
         Node {
             client,
@@ -42,14 +46,19 @@ impl Node {
     }
 
     pub async fn set_synced(&self) {
-        if self.do_not_use {        // keep nodes that are marked not-for-use synced but never set them as online
+        if self.do_not_use {
+            // keep nodes that are marked not-for-use synced but never set them as online
             self.set_online_and_syncing().await;
             return;
         }
 
         let status = self.status.read().await;
         if status.status != SyncingStatus::Synced {
-            tracing::info!("Node {} is synced with a {}ms timeout", self.url, self.timeout.as_millis());
+            tracing::info!(
+                "Node {} is synced with a {}ms timeout",
+                self.url,
+                self.timeout.as_millis()
+            );
             drop(status);
             let mut status = self.status.write().await;
             status.status = SyncingStatus::Synced;
@@ -70,7 +79,11 @@ impl Node {
     pub async fn set_online_and_syncing(&self) {
         let status = self.status.read().await;
         if status.status != SyncingStatus::OnlineAndSyncing {
-            tracing::info!("Node {} is online and syncing with a {}ms timeout", self.url, self.timeout.as_millis());
+            tracing::info!(
+                "Node {} is online and syncing with a {}ms timeout",
+                self.url,
+                self.timeout.as_millis()
+            );
             drop(status);
             let mut status = self.status.write().await;
             status.status = SyncingStatus::OnlineAndSyncing;
