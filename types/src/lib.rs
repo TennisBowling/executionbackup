@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
-use ethereum_types::{Address, H256, H64, U256};
+use ethereum_types::{Address, Signature, H256, H64, U256};
 use jsonwebtoken::EncodingKey;
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
@@ -52,8 +52,8 @@ pub fn read_jwt(path: &str) -> Result<jsonwebtoken::EncodingKey, String> {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PayloadStatusV1Status {
     Valid,
-    Invalid,
     Syncing,
+    Invalid,
     Accepted,
     InvalidBlockHash,
 }
@@ -145,25 +145,33 @@ pub struct QuantityU64 {
 #[derive(Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DepositRequest {
-    /*
-    pubkey: DATA, 48 Bytes
-    withdrawalCredentials: DATA, 32 Bytes
-    amount: QUANTITY, 64 Bits
-    signature: DATA, 96 Bytes
-    index: QUANTITY, 64 Bits
-    Note: The amount value is represented in Gwei. */
-    pub placeholder: String,
+    pub pubkey: Vec<u8>,
+    pub withdrawalCredentials: H256,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub amount: u64,
+    pub signature: Signature,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct WithdrawalRequest {
     pub source_address: Address,
-    pub validator_pubkey: String,                // TODO: placeholder
+    pub validator_pubkey: Vec<u8>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub amount: u64,
 }
 
+
+// TODO: take a look at this. also try to fix the Vec<u8> into a better type for this and Withdrawal + DepositRequests
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsolidationRequest {
+    pub source_address: Address,
+    pub source_pubkey: Vec<u8>,
+    pub target_pubkey: Vec<u8>,
+}
 
 // TODO: consider not using getter(copy) here. Not sure that we need the Result<T, E> instead of Result<&T, E>
 
@@ -219,6 +227,8 @@ pub struct ExecutionPayload {
     pub deposit_requests: VariableList<DepositRequest, U8192>,
     #[superstruct(only(V4))]
     pub withdrawal_requests: VariableList<WithdrawalRequest, U16>,
+    #[superstruct(only(V4))]    // TODO: Turn this into a VariableList
+    pub consolidation_requests: Vec<ConsolidationRequest>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -341,6 +351,9 @@ pub enum EngineMethod {
     engine_getPayloadV3,
     engine_getClientVersionV1,
     engine_newPayloadV4,
+    engine_getPayloadV4,
+    engine_getPayloadBodiesByHashV2,
+    engine_getPayloadBodiesByRangeV2,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -365,7 +378,7 @@ pub struct forkchoiceUpdatedResponse {
 }
 
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2, V3, V4),
     variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
 )]
 #[derive(Serialize, Deserialize, Clone)]
@@ -377,12 +390,14 @@ pub struct getPayloadResponse {
     pub execution_payload: ExecutionPayloadV2,
     #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
     pub execution_payload: ExecutionPayloadV3,
+    #[superstruct(only(V4), partial_getter(rename = "execution_payload_v4"))]
+    pub execution_payload: ExecutionPayloadV4,
     #[serde(with = "serde_utils::u256_hex_be")]
-    #[superstruct(getter(copy))]
+    #[superstruct(partial_getter(copy), only(V2, V3, V4))]
     pub block_value: U256,
-    #[superstruct(only(V3))]
+    #[superstruct(only(V3, V4))]
     pub blobs_bundle: serde_json::Value,
-    #[superstruct(only(V3), partial_getter(copy))]
+    #[superstruct(only(V3, V4), partial_getter(copy))]
     pub should_override_builder: bool,
 }
 

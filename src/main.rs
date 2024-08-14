@@ -749,51 +749,35 @@ impl NodeRouter {
                 }
             } // getPayloadV1
 
-            EngineMethod::engine_getPayloadV2 => {
-                // getPayloadV2 has a different schema, where alongside the executionPayload it has a blockValue
-                // so we should send this to all the nodes and then return the one with the highest blockValue
+            EngineMethod::engine_getPayloadV2 | EngineMethod::engine_getPayloadV3 | EngineMethod::engine_getPayloadV4 => {
 
-                // WILLNOTFIX the spec require getPayloadV2 to support getPayloadResponseV1, but it adds too much complexity
-                // for little benefit, as I doubt people actually use getPayloadResponseV1 with getPayloadV2
-                let resps: Vec<getPayloadResponseV2> =
+                let resps: Vec<getPayloadResponse> =
                     self.concurrent_requests(request, jwt_token, false).await;
                 let most_profitable = resps
                     .iter()
-                    .max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
-
-                if let Some(most_profitable_payload) = most_profitable {
-                    tracing::info!("Block {} requested by CL. All EL blocks profitability: {:?}. Using payload with value of {}", most_profitable_payload.execution_payload.block_number, resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
-                    return (
-                        make_response(&request.id, json!(most_profitable_payload)),
-                        200,
-                    );
-                }
-
-                // we have no payloads
-                tracing::warn!("No blocks found in EL engine_getPayloadV2 responses");
-                (
-                    make_error(
-                        &request.id,
-                        "No blocks found in EL engine_getPayloadV2 responses",
-                    ),
-                    200,
-                )
-            } // getPayloadV2
-
-            EngineMethod::engine_getPayloadV3 => {
-                // accepts only getPayloadResponseV3 since this version actually modifies the getPayload response (adding blob_bundle)
-                // as well as the nested execution payload
-
-                let resps: Vec<getPayloadResponseV3> =
-                    self.concurrent_requests(request, jwt_token, false).await;
-                let most_profitable = resps
-                    .iter()
-                    .max_by(|resp_a, resp_b| resp_a.block_value.cmp(&resp_b.block_value));
+                    .max_by(|resp_a, resp_b| resp_a.block_value().unwrap().cmp(&resp_b.block_value().unwrap()));
 
                 // note: we may want to get the most profitable block from resps that have should_override_builder = true, note this in release
 
+
                 if let Some(most_profitable_payload) = most_profitable {
-                    tracing::info!("Block {} requested by CL. All EL blocks profitability: {:?}. Using payload with value of {}", most_profitable_payload.execution_payload.block_number, resps.iter().map(|payload| payload.block_value).collect::<Vec<U256>>(), most_profitable_payload.block_value);
+                    let block_number = match request.method {
+                        EngineMethod::engine_getPayloadV2 => {
+                            most_profitable_payload.execution_payload_v2().unwrap().block_number
+                        }
+                        EngineMethod::engine_getPayloadV3 => {
+                            most_profitable_payload.execution_payload_v3().unwrap().block_number
+                        }
+                        EngineMethod::engine_getPayloadV4 => {
+                            most_profitable_payload.execution_payload_v4().unwrap().block_number
+                        }
+                        _ => {
+                            unreachable!("File an issue on github. This should never happen. Matched non getPayloadV2|3|4 even though previously matched")
+                        }
+                    };                    
+                    
+                
+                    tracing::info!("getPayload2|3|4: Block #{} requested by CL. All EL blocks profitability (wei): {:?}. Using payload with value of {} wei", block_number, resps.iter().map(|payload| payload.block_value().unwrap()).collect::<Vec<U256>>(), most_profitable_payload.block_value().unwrap());
                     return (
                         make_response(&request.id, json!(most_profitable_payload)),
                         200,
@@ -801,7 +785,7 @@ impl NodeRouter {
                 }
 
                 // we have no payloads
-                tracing::warn!("No blocks found in EL engine_getPayloadV3 responses");
+                tracing::error!("No blocks found in EL engine_getPayloadV3 responses");
                 (
                     make_error(
                         &request.id,
@@ -809,10 +793,10 @@ impl NodeRouter {
                     ),
                     200,
                 )
-            } // getPayloadV3
+            } // getPayloadV2,3,4
 
             EngineMethod::engine_newPayloadV1 | EngineMethod::engine_newPayloadV2 => {
-                tracing::debug!("Sending newPayloadV1|V2 to alive nodes");
+                tracing::debug!("Sending newPayloadV1|2 to alive nodes");
                 let mut resps: Vec<PayloadStatusV1> =
                     self.concurrent_requests(request, jwt_token.clone(), false).await;
 
@@ -869,7 +853,7 @@ impl NodeRouter {
 
                 // we have a majority
                 (make_response(&request.id, json!(resp)), 200)
-            } // newPayloadV1, V2
+            } // newPayloadV1,2
 
             EngineMethod::engine_newPayloadV3 | EngineMethod::engine_newPayloadV4 => {
                 let newpayload_request = match newpayload_serializer(request.clone(), fork_config) {
@@ -937,7 +921,7 @@ impl NodeRouter {
 
                 // we have a majority
                 (make_response(&request.id, json!(resp)), 200)
-            } // newPayloadV3
+            } // newPayloadV3|4
 
             EngineMethod::engine_forkchoiceUpdatedV1
             | EngineMethod::engine_forkchoiceUpdatedV2
@@ -1029,8 +1013,9 @@ impl NodeRouter {
                 (make_response(&request.id, json!(resps)), 200)
             }
 
+            // Requests like engine_getPayloadBodiesByHash, engine_getPayloadBodiesByRange
             _ => {
-                // wait for primary node's response, but also send to all other nodes
+                // Send to primary node
                 let primary_node = match self.get_execution_node().await {
                     Some(primary_node) => primary_node,
                     None => {
@@ -1042,24 +1027,6 @@ impl NodeRouter {
                 let resp = primary_node
                     .do_request_no_timeout(request, jwt_token.clone())
                     .await;
-
-                // spawn a new task to replicate requests
-                let alive_nodes = self.alive_nodes.clone();
-                let jwt_token = jwt_token.to_owned();
-                let request_clone = request.clone();
-                tokio::spawn(async move {
-                    let alive_nodes = alive_nodes.read().await.clone();
-
-                    join_all(
-                        alive_nodes
-                            .iter()
-                            .filter(|node| node.url != primary_node.url)
-                            .map(|node| {
-                                node.do_request_no_timeout(&request_clone, jwt_token.clone())
-                            }),
-                    )
-                    .await;
-                });
 
                 // return resp from primary node
                 match resp {
