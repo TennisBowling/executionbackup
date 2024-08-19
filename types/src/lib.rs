@@ -146,7 +146,7 @@ pub struct QuantityU64 {
 #[serde(rename_all = "camelCase")]
 pub struct DepositRequest {
     pub pubkey: Vec<u8>,
-    pub withdrawalCredentials: H256,
+    pub withdrawal_credentials: H256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub amount: u64,
     pub signature: Signature,
@@ -349,6 +349,7 @@ pub enum EngineMethod {
     engine_forkchoiceUpdatedV3,
     engine_getPayloadV3,
     engine_getClientVersionV1,
+    // prague
     engine_newPayloadV4,
     engine_getPayloadV4,
     engine_getPayloadBodiesByHashV2,
