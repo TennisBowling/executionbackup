@@ -8,7 +8,7 @@ use ssz_types::{
     typenum::{U1048576, U1073741824, U16, U8192},
     VariableList,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 pub mod keccak;
 use superstruct::superstruct;
 pub mod node;
@@ -399,6 +399,17 @@ pub struct getPayloadResponse {
     pub blobs_bundle: serde_json::Value,
     #[superstruct(only(V3, V4), partial_getter(copy))]
     pub should_override_builder: bool,
+}
+
+impl Debug for getPayloadResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::V1(_) => f.debug_tuple("V1").finish(),
+            Self::V2(_) => f.debug_tuple("V2").finish(),
+            Self::V3(_) => f.debug_tuple("V3").finish(),
+            Self::V4(_) => f.debug_tuple("V4").finish(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
