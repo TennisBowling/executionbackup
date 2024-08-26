@@ -782,7 +782,6 @@ impl NodeRouter {
                 // note: we may want to get the most profitable block from resps that have should_override_builder = true, note this in release
 
                 if let Some(most_profitable_payload) = most_profitable {
-                    tracing::warn!("Method: {:?}, payload version: {:?}", request.method, most_profitable_payload);
                     let block_number = match request.method {
                         EngineMethod::engine_getPayloadV2 => {
                             most_profitable_payload
