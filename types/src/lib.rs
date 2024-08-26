@@ -379,10 +379,10 @@ pub struct forkchoiceUpdatedResponse {
 
 #[superstruct(
     variants(V1, V2, V3, V4),
-    variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
+    variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase", deny_unknown_fields))
 )]
 #[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase", untagged)]
+#[serde(rename_all = "camelCase", untagged, deny_unknown_fields)]
 pub struct getPayloadResponse {
     #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))] // V1, V2
     pub execution_payload: ExecutionPayloadV1,
