@@ -790,6 +790,8 @@ impl NodeRouter {
                         }
                     };
 
+                tracing::debug!("Got main payload_id, fetching individual EL payloads");
+
                 let mut futs = Vec::new();
                 specific_node_payloads
                     .into_iter()
@@ -1010,9 +1012,9 @@ impl NodeRouter {
 
                     let mut payload_id_bytes = [0; 8];
                     rand::thread_rng().fill_bytes(&mut payload_id_bytes);
-                    main_payload_id = Some(hex::encode(payload_id_bytes));
+                    main_payload_id = Some(format!("0x{}", hex::encode(payload_id_bytes)));
 
-                    
+
                     // Get the nodes and it's respective payload_id together
                     let payloadid_nodes: Vec<PayloadIdNode> = resps
                         .iter()
