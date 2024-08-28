@@ -1012,9 +1012,8 @@ impl NodeRouter {
                     rand::thread_rng().fill_bytes(&mut payload_id_bytes);
                     main_payload_id = Some(hex::encode(payload_id_bytes));
 
+                    
                     // Get the nodes and it's respective payload_id together
-                    println!("{:?}", resps.iter().map(|x| x.1.payloadId.clone()).collect::<Vec<_>>());
-
                     let payloadid_nodes: Vec<PayloadIdNode> = resps
                         .iter()
                         .map(|resp| PayloadIdNode {
@@ -1023,10 +1022,14 @@ impl NodeRouter {
                         })
                         .collect();
 
+                    let total_unique_payload_ids = payloadid_nodes.len();
+
                     self.payload_ids
                         .lock()
                         .await
                         .insert(main_payload_id.clone().unwrap(), payloadid_nodes);
+
+                    tracing::debug!("Stored {} unique payload_ids, gave CL main payload_id: {}", total_unique_payload_ids, main_payload_id.clone().unwrap());
                 }
 
                 let resp = match self
