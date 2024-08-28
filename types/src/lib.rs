@@ -24,6 +24,31 @@ lazy_static! {
     static ref JWT_HEADER: jsonwebtoken::Header = jsonwebtoken::Header::new(DEFAULT_ALGORITHM);
 }
 
+pub fn parse_result(resp: &str) -> Result<serde_json::Value, ParseError> {
+    let j = match serde_json::from_str::<serde_json::Value>(resp) {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!(reponse_body = ?resp, "Error deserializing response: {}", e);
+            return Err(ParseError::InvalidJson);
+        }
+    };
+
+    if let Some(error) = j.get("error") {
+        tracing::error!(reponse_body = ?resp, "Response has error: {}", error);
+        return Err(ParseError::ElError);
+    }
+
+    let result = match j.get("result") {
+        Some(result) => result,
+        None => {
+            tracing::error!(reponse_body = ?resp, "Response has no result field");
+            return Err(ParseError::MethodNotFound);
+        }
+    };
+
+    Ok(result.clone())
+}
+
 #[derive(Clone)]
 pub struct PayloadIdNode {
     pub node: Arc<Node>,
@@ -39,9 +64,10 @@ impl PayloadIdNode {
     ) -> Option<getPayloadResponse> {
         request.params = json!(vec![self.payload_id]);
 
-        let res = self.node.do_request(&request, jwt_token).await.ok()?;
+        let res = parse_result(&self.node.do_request(&request, jwt_token).await.ok()?).ok()?;
 
-        Some(serde_json::from_str(&res).unwrap())
+
+        Some(serde_json::from_value(res).unwrap())
     }
 }
 
