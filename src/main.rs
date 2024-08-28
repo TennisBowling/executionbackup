@@ -9,6 +9,7 @@ use ethereum_types::{H256, U256};
 use futures::future::join_all;
 
 use node::NodeHealth;
+use rand::RngCore;
 use serde_json::json;
 use std::{any::type_name, collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::{
@@ -64,10 +65,8 @@ pub fn newpayload_serializer(
             return Err("newPayloadV3's params did not have 3 elements.".to_string());
         }
 
-        let execution_payload: ExecutionPayload;
-
-        if request.method == EngineMethod::engine_newPayloadV3 {
-            execution_payload =
+        let execution_payload: ExecutionPayload =
+            if request.method == EngineMethod::engine_newPayloadV3 {
                 ExecutionPayload::V3(match serde_json::from_value(params[0].take()) {
                     // direct getting is safe here since we checked that we have least 3 elements
                     Ok(execution_payload) => execution_payload,
@@ -78,9 +77,8 @@ pub fn newpayload_serializer(
                         );
                         return Err("Could not serialize ExecutionPayload".to_string());
                     }
-                });
-        } else {
-            execution_payload =
+                })
+            } else {
                 ExecutionPayload::V4(match serde_json::from_value(params[0].take()) {
                     // direct getting is safe here since we checked that we have least 3 elements
                     Ok(execution_payload) => execution_payload,
@@ -91,8 +89,8 @@ pub fn newpayload_serializer(
                         );
                         return Err("Could not serialize ExecutionPayload".to_string());
                     }
-                });
-        }
+                })
+            };
 
         let versioned_hashes: Vec<H256> = match serde_json::from_value(params[1].take()) {
             Ok(versioned_hashes) => versioned_hashes,
@@ -300,6 +298,8 @@ struct NodeRouter {
     // percentage of nodes that need to agree for it to be deemed a majority
     majority_percentage: f32, // 0.1..0.9
 
+    payload_ids: Mutex<HashMap<String, Vec<PayloadIdNode>>>,
+
     // setting to set if node timings are displayed
     node_timings_enabled: bool,
 
@@ -327,7 +327,7 @@ impl NodeRouter {
             dead_nodes: Arc::new(RwLock::new(Vec::new())),
             alive_but_syncing_nodes: Arc::new(RwLock::new(Vec::new())),
             primary_node: Arc::new(RwLock::new(primary_node)),
-            //jwt_key: Arc::new(jwt_key.clone()),
+            payload_ids: Mutex::new(HashMap::new()),
             majority_percentage,
             node_timings_enabled,
             fork_config,
@@ -359,7 +359,7 @@ impl NodeRouter {
         request: &RpcRequest,
         jwt_token: String,
         use_syncing_nodes: bool,
-    ) -> Vec<T>
+    ) -> Vec<(Arc<Node>, T)>
     where
         T: serde::de::DeserializeOwned,
     {
@@ -379,17 +379,18 @@ impl NodeRouter {
                 let start = std::time::Instant::now();
                 let response = node.do_request(request, jwt_token.clone()).await;
                 let resp_time = start.elapsed().as_millis();
-                return (response, node.url.clone(), resp_time);
+                (response, node.clone(), resp_time)
             })
         });
 
         let mut out = Vec::with_capacity(nodes.len());
-        let completed: Vec<(Result<String, reqwest::Error>, String, u128)> = join_all(futs).await;
+        let completed: Vec<(Result<String, reqwest::Error>, Arc<Node>, u128)> =
+            join_all(futs).await;
 
         for resp_nodeurl_timing in completed {
             tracing::debug!(
                 "Response from node {} took {}ms",
-                resp_nodeurl_timing.1,
+                resp_nodeurl_timing.1.url,
                 resp_nodeurl_timing.2
             );
             match resp_nodeurl_timing.0 {
@@ -401,7 +402,7 @@ impl NodeRouter {
                             tracing::error!(
                                 "Couldn't parse node result for {:?} from node {}: {:?}",
                                 request.method,
-                                resp_nodeurl_timing.1, // node url
+                                resp_nodeurl_timing.1.url, // node url
                                 e
                             );
                             continue;
@@ -410,13 +411,13 @@ impl NodeRouter {
 
                     match serde_json::from_value::<T>(result) {
                         Ok(deserialized) => {
-                            out.push(deserialized);
+                            out.push((resp_nodeurl_timing.1, deserialized));
                         }
                         Err(e) => {
                             tracing::error!(
                                 "Couldn't deserialize response {:?} from node {} to type {}: {}",
                                 request.method,
-                                resp_nodeurl_timing.1, // node url
+                                resp_nodeurl_timing.1.url, // node url
                                 type_name::<T>(),
                                 e
                             );
@@ -427,7 +428,7 @@ impl NodeRouter {
                     tracing::error!(
                         "{:?} error from node {}: {}",
                         request.method,
-                        resp_nodeurl_timing.1,
+                        resp_nodeurl_timing.1.url,
                         e
                     );
                 }
@@ -610,7 +611,7 @@ impl NodeRouter {
     // if there is no majority, then return None
     // if there is a draw, just return the first response
     // u64 on the response should be the "id" field from the any of the responses
-    fn fcu_majority(&self, results: &mut Vec<PayloadStatusV1>) -> Option<PayloadStatusV1> {
+    fn fcu_majority(&self, results: &mut [PayloadStatusV1]) -> Option<PayloadStatusV1> {
         let total_responses = results.len();
         let majority_count = (total_responses as f32 * self.majority_percentage).round() as usize;
 
@@ -753,7 +754,7 @@ impl NodeRouter {
                 let resp = node.do_request_no_timeout(request, jwt_token).await; // no timeout since the CL will just time us out themselves
                 tracing::debug!("engine_getPayloadV1 sent to node: {}", node.url);
                 match resp {
-                    Ok(resp) => return (resp, 200),
+                    Ok(resp) => (resp, 200),
                     Err(e) => {
                         tracing::warn!("engine_getPayloadV1 error: {}", e);
 
@@ -770,14 +771,44 @@ impl NodeRouter {
             EngineMethod::engine_getPayloadV2
             | EngineMethod::engine_getPayloadV3
             | EngineMethod::engine_getPayloadV4 => {
-                let resps: Vec<getPayloadResponse> =
-                    self.concurrent_requests(request, jwt_token, false).await;
-                let most_profitable = resps.iter().max_by(|resp_a, resp_b| {
-                    resp_a
-                        .block_value()
-                        .unwrap()
-                        .cmp(&resp_b.block_value().unwrap())
-                });
+                let cl_payload_id = request.params.as_array().unwrap()[0]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+
+                let specific_node_payloads =
+                    match self.payload_ids.lock().await.remove(&cl_payload_id) {
+                        Some(snp) => snp,
+                        None => {
+                            return (
+                                make_error(
+                                    &request.id,
+                                    "ExecutionBackup: Couldn't find main payload_id",
+                                ),
+                                200,
+                            )
+                        }
+                    };
+
+                let mut futs = Vec::new();
+                specific_node_payloads
+                    .into_iter()
+                    .for_each(|x| futs.push(x.get_payload(request.clone(), jwt_token.clone())));
+                let resps = join_all(futs).await;
+
+                //let resps: Vec<(Arc<Node>, getPayloadResponse)> =
+                //    self.concurrent_requests(request, jwt_token, false).await;
+
+                let most_profitable = resps
+                    .iter()
+                    .flatten() // Remove all Nones (invalid responses from node)
+                    .max_by(|resp_a, resp_b| {
+                        resp_a
+                            .block_value()
+                            .unwrap()
+                            .cmp(&resp_b.block_value().unwrap())
+                    })
+                    .cloned();
 
                 // note: we may want to get the most profitable block from resps that have should_override_builder = true, note this in release
 
@@ -806,7 +837,7 @@ impl NodeRouter {
                         }
                     };
 
-                    tracing::info!("getPayload2|3|4: Block #{} requested by CL. All EL blocks profitability (wei): {:?}. Using payload with value of {} wei", block_number, resps.iter().map(|payload| payload.block_value().unwrap()).collect::<Vec<U256>>(), most_profitable_payload.block_value().unwrap());
+                    tracing::info!("getPayload2|3|4: Block #{} requested by CL. All EL blocks profitability (wei): {:?}. Using payload with value of {} wei", block_number, resps.iter().flatten().map(|payload| payload.block_value().unwrap()).collect::<Vec<U256>>(), most_profitable_payload.block_value().unwrap());
                     return (
                         make_response(&request.id, json!(most_profitable_payload)),
                         200,
@@ -827,8 +858,11 @@ impl NodeRouter {
             EngineMethod::engine_newPayloadV1 | EngineMethod::engine_newPayloadV2 => {
                 tracing::debug!("Sending newPayloadV1|2 to alive nodes");
                 let mut resps: Vec<PayloadStatusV1> = self
-                    .concurrent_requests(request, jwt_token.clone(), false)
-                    .await;
+                    .concurrent_requests::<PayloadStatusV1>(request, jwt_token.clone(), false)
+                    .await
+                    .iter()
+                    .map(|x| x.1.clone())
+                    .collect();
 
                 let resp = match self.fcu_logic(&mut resps, request, jwt_token).await {
                     Ok(resp) => resp,
@@ -896,8 +930,11 @@ impl NodeRouter {
 
                 tracing::debug!("Sending newPayloadV3|4 to alive nodes");
                 let mut resps: Vec<PayloadStatusV1> = self
-                    .concurrent_requests(request, jwt_token.clone(), false)
-                    .await;
+                    .concurrent_requests::<PayloadStatusV1>(request, jwt_token.clone(), false)
+                    .await
+                    .iter()
+                    .map(|x| x.1.clone())
+                    .collect();
 
                 let resp = match self.fcu_logic(&mut resps, request, jwt_token).await {
                     Ok(resp) => resp,
@@ -958,19 +995,36 @@ impl NodeRouter {
             | EngineMethod::engine_forkchoiceUpdatedV2
             | EngineMethod::engine_forkchoiceUpdatedV3 => {
                 tracing::debug!("Sending fcU to alive nodes");
-                let resps: Vec<forkchoiceUpdatedResponse> = self
+                let resps: Vec<(Arc<Node>, forkchoiceUpdatedResponse)> = self
                     .concurrent_requests(request, jwt_token.clone(), false)
                     .await;
 
-                let mut payloadstatus_resps = Vec::<PayloadStatusV1>::with_capacity(resps.len()); // faster to allocate in one go
-                let mut payload_id: Option<String> = None;
+                let mut payloadstatus_resps: Vec<PayloadStatusV1> =
+                    resps.iter().map(|x| x.1.payloadStatus.clone()).collect();
+                let mut main_payload_id: Option<String> = None;
 
-                for resp in resps {
-                    if let Some(inner_payload_id) = resp.payloadId {
-                        // todo: make this look cleaner.
-                        payload_id = Some(inner_payload_id); // if payloadId is not null, then use that. all resps will have the same payloadId
-                    };
-                    payloadstatus_resps.push(resp.payloadStatus);
+                // Check that payloadAttributes is not null
+                if !request.params.as_array().unwrap()[1].is_null() {
+                    // Since resps have different payload_ids, we will create our own, which we return to all CLs.
+                    // When the CL calls getPayload, they will provide this main payload_id we created, and we can fetch the result with the per-EL payload_id.
+
+                    let mut payload_id_bytes = [0; 8];
+                    rand::thread_rng().fill_bytes(&mut payload_id_bytes);
+                    main_payload_id = Some(hex::encode(payload_id_bytes));
+
+                    // Get the nodes and it's respective payload_id together
+                    let payloadid_nodes: Vec<PayloadIdNode> = resps
+                        .iter()
+                        .map(|resp| PayloadIdNode {
+                            node: resp.0.clone(),
+                            payload_id: resp.1.payloadId.clone().unwrap(),
+                        })
+                        .collect();
+
+                    self.payload_ids
+                        .lock()
+                        .await
+                        .insert(main_payload_id.clone().unwrap(), payloadid_nodes);
                 }
 
                 let resp = match self
@@ -1033,16 +1087,20 @@ impl NodeRouter {
                         &request.id,
                         json!(forkchoiceUpdatedResponse {
                             payloadStatus: resp,
-                            payloadId: payload_id,
+                            payloadId: main_payload_id,
                         }),
                     ),
                     200,
                 )
-            } // fcU V1, V2
+            } // fcU V1, V2, V3
 
             EngineMethod::engine_getClientVersionV1 => {
-                let resps: Vec<serde_json::Value> =
-                    self.concurrent_requests(request, jwt_token, true).await; // send to syncing nodes too
+                let resps: Vec<serde_json::Value> = self
+                    .concurrent_requests::<serde_json::Value>(request, jwt_token, true)
+                    .await
+                    .iter()
+                    .map(|x| x.1.clone())
+                    .collect(); // send to syncing nodes too
                 (make_response(&request.id, json!(resps)), 200)
             }
 
@@ -1361,22 +1419,21 @@ async fn add_node(
     Extension(router): Extension<Arc<NodeRouter>>,
     extract::Json(request): extract::Json<NodeList>,
 ) -> impl IntoResponse {
-    let mut nodes = match request
-        .create_new_nodes(router.general_jwt.clone(), router.general_timeout.clone())
-    {
-        Ok(nodes) => nodes,
-        Err(e) => {
-            tracing::error!("Unable to create nodes from NodeList: {}", e);
-            return Response::builder()
-                .status(500)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(format!(
-                    r#"{{"error":"Unable to get nodes from NodeList: {}"}}"#,
-                    e
-                ))
-                .unwrap();
-        }
-    };
+    let mut nodes =
+        match request.create_new_nodes(router.general_jwt.clone(), router.general_timeout) {
+            Ok(nodes) => nodes,
+            Err(e) => {
+                tracing::error!("Unable to create nodes from NodeList: {}", e);
+                return Response::builder()
+                    .status(500)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(format!(
+                        r#"{{"error":"Unable to get nodes from NodeList: {}"}}"#,
+                        e
+                    ))
+                    .unwrap();
+            }
+        };
 
     tracing::info!("Adding {} new nodes", nodes.len());
     router.nodes.lock().await.append(&mut nodes);

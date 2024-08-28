@@ -4,6 +4,7 @@ use ethereum_types::{Address, Signature, H256, H64, U256};
 use jsonwebtoken::EncodingKey;
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use ssz_types::{
     typenum::{U1048576, U1073741824, U16, U8192},
     VariableList,
@@ -21,6 +22,27 @@ const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS25
 
 lazy_static! {
     static ref JWT_HEADER: jsonwebtoken::Header = jsonwebtoken::Header::new(DEFAULT_ALGORITHM);
+}
+
+#[derive(Clone)]
+pub struct PayloadIdNode {
+    pub node: Arc<Node>,
+    pub payload_id: String,
+}
+
+impl PayloadIdNode {
+    // We're going to use Option instead of result because we end up discarding this result if it's None, and the node requestor function will display the error already.
+    pub async fn get_payload(
+        self,
+        mut request: RpcRequest,
+        jwt_token: String,
+    ) -> Option<getPayloadResponse> {
+        request.params = json!(vec![self.payload_id]);
+
+        let res = self.node.do_request(&request, jwt_token).await.ok()?;
+
+        Some(serde_json::from_str(&res).unwrap())
+    }
 }
 
 pub fn make_jwt(
@@ -379,7 +401,10 @@ pub struct forkchoiceUpdatedResponse {
 
 #[superstruct(
     variants(V1, V2, V3, V4),
-    variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase", deny_unknown_fields))
+    variant_attributes(
+        derive(Serialize, Deserialize, Clone),
+        serde(rename_all = "camelCase", deny_unknown_fields)
+    )
 )]
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", untagged, deny_unknown_fields)]
