@@ -1013,6 +1013,8 @@ impl NodeRouter {
                     main_payload_id = Some(hex::encode(payload_id_bytes));
 
                     // Get the nodes and it's respective payload_id together
+                    println!("{:?}", resps.iter().map(|x| x.1.payloadId.clone()).collect::<Vec<_>>());
+
                     let payloadid_nodes: Vec<PayloadIdNode> = resps
                         .iter()
                         .map(|resp| PayloadIdNode {
