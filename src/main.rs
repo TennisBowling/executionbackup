@@ -765,7 +765,7 @@ impl NodeRouter {
                         }
                     };
 
-                tracing::debug!("Got main payload_id, fetching individual EL payloads");
+                tracing::debug!(main_payload_id=?cl_payload_id, "Got main payload_id, fetching individual EL payloads");
 
                 let mut futs = Vec::new();
                 specific_node_payloads
@@ -773,8 +773,6 @@ impl NodeRouter {
                     .for_each(|x| futs.push(x.get_payload(request.clone(), jwt_token.clone())));
                 let resps = join_all(futs).await;
 
-                //let resps: Vec<(Arc<Node>, getPayloadResponse)> =
-                //    self.concurrent_requests(request, jwt_token, false).await;
 
                 let most_profitable = resps
                     .iter()
@@ -982,6 +980,7 @@ impl NodeRouter {
 
                 // Check that payloadAttributes is not null
                 if !request.params.as_array().unwrap()[1].is_null() {
+                    tracing::info!("CL sent payloadAttributes, wants to build a payload");
                     // Since resps have different payload_ids, we will create our own, which we return to all CLs.
                     // When the CL calls getPayload, they will provide this main payload_id we created, and we can fetch the result with the per-EL payload_id.
 

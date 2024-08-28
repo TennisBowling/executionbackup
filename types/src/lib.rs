@@ -64,6 +64,7 @@ impl PayloadIdNode {
     ) -> Option<getPayloadResponse> {
         request.params = json!(vec![self.payload_id]);
 
+        tracing::debug!("Sending getPayload request to node {}", self.node.url);
         let res = parse_result(&self.node.do_request(&request, jwt_token).await.ok()?).ok()?;
 
 

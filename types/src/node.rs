@@ -90,6 +90,7 @@ impl Node {
         }
     }
 
+
     pub async fn check_status(&self) -> Result<NodeHealth, reqwest::Error> {
         // we need to use jwt here since we're talking directly to the EE's auth port
         let token = make_jwt(&self.jwt_key).unwrap();
