@@ -90,7 +90,6 @@ impl Node {
         }
     }
 
-
     pub async fn check_status(&self) -> Result<NodeHealth, reqwest::Error> {
         // we need to use jwt here since we're talking directly to the EE's auth port
         let token = make_jwt(&self.jwt_key).unwrap();
@@ -149,6 +148,34 @@ impl Node {
             .header("Authorization", jwt_token)
             .body(data.as_bytes())
             .timeout(self.timeout)
+            .send()
+            .await;
+
+        let resp = match resp {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::error!("Error while sending request to node {}: {}", self.url, e);
+                return Err(e);
+            }
+        };
+
+        let resp_body = resp.text().await?;
+        Ok(resp_body)
+    }
+
+    pub async fn do_request_timeout(
+        &self,
+        data: &RpcRequest,
+        jwt_token: String,
+        timeout: Duration,
+    ) -> Result<String, reqwest::Error> {
+        let resp = self
+            .client
+            .post(&self.url)
+            .header("Content-Type", "application/json")
+            .header("Authorization", jwt_token)
+            .body(data.as_bytes())
+            .timeout(timeout)
             .send()
             .await;
 

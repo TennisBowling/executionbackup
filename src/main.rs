@@ -765,14 +765,16 @@ impl NodeRouter {
                         }
                     };
 
-                tracing::debug!(main_payload_id=?cl_payload_id, "Got main payload_id, fetching individual EL payloads");
+                tracing::debug!(
+                    "Got main payload_id {}, fetching individual EL payloads",
+                    cl_payload_id
+                );
 
                 let mut futs = Vec::new();
                 specific_node_payloads
                     .into_iter()
                     .for_each(|x| futs.push(x.get_payload(request.clone(), jwt_token.clone())));
                 let resps = join_all(futs).await;
-
 
                 let most_profitable = resps
                     .iter()
@@ -988,7 +990,6 @@ impl NodeRouter {
                     rand::thread_rng().fill_bytes(&mut payload_id_bytes);
                     main_payload_id = Some(format!("0x{}", hex::encode(payload_id_bytes)));
 
-
                     // Get the nodes and it's respective payload_id together
                     let payloadid_nodes: Vec<PayloadIdNode> = resps
                         .iter()
@@ -1005,7 +1006,11 @@ impl NodeRouter {
                         .await
                         .insert(main_payload_id.clone().unwrap(), payloadid_nodes);
 
-                    tracing::debug!("Stored {} unique payload_ids, gave CL main payload_id: {}", total_unique_payload_ids, main_payload_id.clone().unwrap());
+                    tracing::debug!(
+                        "Stored {} unique payload_ids, gave CL main payload_id: {}",
+                        total_unique_payload_ids,
+                        main_payload_id.clone().unwrap()
+                    );
                 }
 
                 let resp = match self

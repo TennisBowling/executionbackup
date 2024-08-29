@@ -65,8 +65,14 @@ impl PayloadIdNode {
         request.params = json!(vec![self.payload_id]);
 
         tracing::debug!("Sending getPayload request to node {}", self.node.url);
-        let res = parse_result(&self.node.do_request(&request, jwt_token).await.ok()?).ok()?;
-
+        let res = parse_result(
+            &self
+                .node
+                .do_request_timeout(&request, jwt_token, Duration::from_millis(800))
+                .await
+                .ok()?,
+        )
+        .ok()?;
 
         Some(serde_json::from_value(res).unwrap())
     }
