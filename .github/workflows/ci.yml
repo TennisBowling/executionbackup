@@ -91,7 +91,7 @@ jobs:
                     move *tar.gz ..
 
             - name: Upload artifacts
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v4
               with:
                 name: executionbackup-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz
                 path: executionbackup-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz
@@ -117,7 +117,7 @@ jobs:
       - name: Store Release url
         run: |
           echo "${{ steps.create_release.outputs.upload_url }}" > ./upload_url
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         with:
           path: ./upload_url
           name: upload_url
