@@ -74,7 +74,14 @@ impl PayloadIdNode {
         )
         .ok()?;
 
-        Some(serde_json::from_value(res).unwrap())
+        match serde_json::from_value::<getPayloadResponse>(res.clone()) {
+            Ok(val) => return Some(val),
+            Err(e) => {
+                tracing::error!("Couldn't derive getPayloadResponse for getPayload: {}; Payload body: {:?}", e, res);
+                return None;
+            }
+        }
+
     }
 }
 

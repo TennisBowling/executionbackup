@@ -773,12 +773,12 @@ impl NodeRouter {
                 let mut futs = Vec::new();
                 specific_node_payloads
                     .into_iter()
-                    .for_each(|x| futs.push(x.get_payload(request.clone(), jwt_token.clone())));
+                    .for_each(|payload_id_node| futs.push(payload_id_node.get_payload(request.clone(), jwt_token.clone())));
                 let resps = join_all(futs).await;
 
                 let most_profitable = resps
                     .iter()
-                    .flatten() // Remove all Nones (invalid responses from node)
+                    .flatten() // Remove all invalid responses from node
                     .max_by(|resp_a, resp_b| {
                         resp_a
                             .block_value()
@@ -822,11 +822,11 @@ impl NodeRouter {
                 }
 
                 // we have no payloads
-                tracing::error!("No blocks found in EL engine_getPayloadV3 responses");
+                tracing::error!("No blocks found in EL engine_getPayloadV2|3|4 responses");
                 (
                     make_error(
                         &request.id,
-                        "No blocks found in EL engine_getPayloadV2 responses",
+                        "No blocks found in EL engine_getPayloadV2|3|4 responses",
                     ),
                     200,
                 )
