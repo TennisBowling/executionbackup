@@ -60,37 +60,35 @@ pub fn newpayload_serializer(
     if request.method == EngineMethod::engine_newPayloadV3
         || request.method == EngineMethod::engine_newPayloadV4
     {
-        // params will have 3 fields: [ExecutionPayloadV3 | ExecutionPayloadV4 , expectedBlobVersionedHashes, ParentBeaconBlockRoot]
+        // params will have 3 fields: [ExecutionPayloadV3 | ExecutionPayloadV4 (doesnt exist as of now), expectedBlobVersionedHashes, ParentBeaconBlockRoot]
         if params.len() != 3 {
             return Err("newPayloadV3's params did not have 3 elements.".to_string());
         }
 
-        let execution_payload: ExecutionPayload =
-            if request.method == EngineMethod::engine_newPayloadV3 {
-                ExecutionPayload::V3(match serde_json::from_value(params[0].take()) {
-                    // direct getting is safe here since we checked that we have least 3 elements
-                    Ok(execution_payload) => execution_payload,
-                    Err(e) => {
-                        tracing::error!(
-                            "Could not serialize ExecutionPayload from newPayloadV3: {}",
-                            e
-                        );
-                        return Err("Could not serialize ExecutionPayload".to_string());
-                    }
-                })
-            } else {
-                ExecutionPayload::V4(match serde_json::from_value(params[0].take()) {
-                    // direct getting is safe here since we checked that we have least 3 elements
-                    Ok(execution_payload) => execution_payload,
-                    Err(e) => {
-                        tracing::error!(
-                            "Could not serialize ExecutionPayload from newPayloadV4: {}",
-                            e
-                        );
-                        return Err("Could not serialize ExecutionPayload".to_string());
-                    }
-                })
-            };
+        let execution_payload: ExecutionPayloadV3 = match serde_json::from_value(params[0].take()) {
+            // direct getting is safe here since we checked that we have least 3 elements
+            Ok(execution_payload) => execution_payload,
+            Err(e) => {
+                tracing::error!(
+                    "Could not serialize ExecutionPayload from newPayloadV3: {}",
+                    e
+                );
+                return Err("Could not serialize ExecutionPayload".to_string());
+            }
+        };
+        /*else {
+            ExecutionPayload::V4(match serde_json::from_value(params[0].take()) {
+                // direct getting is safe here since we checked that we have least 3 elements
+                Ok(execution_payload) => execution_payload,
+                Err(e) => {
+                    tracing::error!(
+                        "Could not serialize ExecutionPayload from newPayloadV4: {}",
+                        e
+                    );
+                    return Err("Could not serialize ExecutionPayload".to_string());
+                }
+            })
+        };*/
 
         let versioned_hashes: Vec<H256> = match serde_json::from_value(params[1].take()) {
             Ok(versioned_hashes) => versioned_hashes,
@@ -115,7 +113,7 @@ pub fn newpayload_serializer(
         };
 
         return Ok(NewPayloadRequest {
-            execution_payload,
+            execution_payload: ExecutionPayload::V3(execution_payload),
             expected_blob_versioned_hashes: Some(versioned_hashes),
             parent_beacon_block_root: Some(parent_beacon_block_root),
         });
@@ -770,10 +768,24 @@ impl NodeRouter {
                     cl_payload_id
                 );
 
+                let fork_name = match request.method {
+                    EngineMethod::engine_getPayloadV1 => ForkName::Merge,
+                    EngineMethod::engine_getPayloadV2 => ForkName::Shanghai,
+                    EngineMethod::engine_getPayloadV3 => ForkName::Cancun,
+                    EngineMethod::engine_getPayloadV4 => ForkName::Prague,
+                    _ => unreachable!("File an issue on github. Matched non Engine_getPayload"),
+                };
+
                 let mut futs = Vec::new();
                 specific_node_payloads
                     .into_iter()
-                    .for_each(|payload_id_node| futs.push(payload_id_node.get_payload(request.clone(), jwt_token.clone())));
+                    .for_each(|payload_id_node| {
+                        futs.push(payload_id_node.get_payload(
+                            request.clone(),
+                            jwt_token.clone(),
+                            &fork_name,
+                        ))
+                    });
                 let resps = join_all(futs).await;
 
                 let most_profitable = resps
@@ -805,7 +817,8 @@ impl NodeRouter {
                         }
                         EngineMethod::engine_getPayloadV4 => {
                             most_profitable_payload
-                                .execution_payload_v4()
+                                /*.execution_payload_v4()*/
+                                .execution_payload_v3() // as of now, V4 uses ExecutionPayloadV3
                                 .unwrap()
                                 .block_number
                         }

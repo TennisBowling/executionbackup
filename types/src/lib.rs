@@ -6,7 +6,7 @@ use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use ssz_types::{
-    typenum::{U1048576, U1073741824, U16, U8192},
+    typenum::{U1048576, U1073741824},
     VariableList,
 };
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
@@ -61,6 +61,7 @@ impl PayloadIdNode {
         self,
         mut request: RpcRequest,
         jwt_token: String,
+        fork: &ForkName,
     ) -> Option<getPayloadResponse> {
         request.params = json!(vec![self.payload_id]);
 
@@ -74,14 +75,47 @@ impl PayloadIdNode {
         )
         .ok()?;
 
-        match serde_json::from_value::<getPayloadResponse>(res.clone()) {
-            Ok(val) => return Some(val),
-            Err(e) => {
-                tracing::error!("Couldn't derive getPayloadResponse for getPayload: {}; Payload body: {:?}", e, res);
-                return None;
+        match fork {
+            ForkName::Merge => {
+                unimplemented!(
+                    "getPayloadV1 shouldn't use this function since there's no benefit to it."
+                ) // Just pass the payloadId from CL directly to primary EL
             }
-        }
+            ForkName::Shanghai => {
+                // V1 OR V2
+                match serde_json::from_value::<getPayloadResponseV2>(res.clone()) {
+                    Ok(val) => Some(getPayloadResponse::V2(val)),
+                    Err(_) => {
+                        tracing::debug!("{}: getPayloadV2 request but did not match on getPayloadResponseV2, trying V1", self.node.url);
 
+                        match serde_json::from_value::<getPayloadResponseV1>(res.clone()) {
+                            Ok(val) => Some(getPayloadResponse::V1(val)),
+                            Err(e) => {
+                                tracing::error!("{}: Couldn't derive getPayloadResponseV1 for getPayloadV2: {}. Payload body: {:?}", self.node.url, e, res);
+                                None
+                            }
+                        }
+                    }
+                }
+            }
+            ForkName::Cancun => {
+                // V3
+                match serde_json::from_value::<getPayloadResponseV3>(res.clone()) {
+                    Ok(val) => Some(getPayloadResponse::V3(val)),
+                    Err(e) => {
+                        tracing::error!("{}: Couldn't derive getPayloadResponseV3 for getPayloadV3: {}. Payload body: {:?}", self.node.url, e, res);
+                        None
+                    }
+                }
+            }
+            ForkName::Prague => match serde_json::from_value::<getPayloadResponseV4>(res.clone()) {
+                Ok(val) => Some(getPayloadResponse::V4(val)),
+                Err(e) => {
+                    tracing::error!("{}: Couldn't derive getPayloadResponseV4 for getPayloadV4: {}. Payload body: {:?}", self.node.url, e, res);
+                    None
+                }
+            },
+        }
     }
 }
 
@@ -158,6 +192,7 @@ pub struct Withdrawal {
     pub amount: u64,
 }
 
+#[derive(Debug, Clone)]
 pub enum ForkName {
     Merge,
     Shanghai,
@@ -237,7 +272,7 @@ pub struct ConsolidationRequest {
 // TODO: consider not using getter(copy) here. Not sure that we need the Result<T, E> instead of Result<&T, E>
 
 #[superstruct(
-    variants(V1, V2, V3, V4),
+    variants(V1, V2, V3, /*V4*/),
     variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
 )]
 #[derive(Serialize, Deserialize, Clone)]
@@ -276,20 +311,22 @@ pub struct ExecutionPayload {
     pub block_hash: H256,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: VariableList<VariableList<u8, U1073741824>, U1048576>, // larger one is max bytes per transaction, smaller one is max transactions per payload
-    #[superstruct(only(V2, V3, V4))]
+    #[superstruct(only(V2, V3, /*V4*/))]
     pub withdrawals: Vec<Withdrawal>,
-    #[superstruct(only(V3, V4), partial_getter(copy))]
+    #[superstruct(only(V3, /*V4*/), partial_getter(copy))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(only(V3, V4), partial_getter(copy))]
+    #[superstruct(only(V3, /*V4*/), partial_getter(copy))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
-    #[superstruct(only(V4))]
+    // TODO: this was written based on LH's implem but it seems that ExecutionPayloadV4 isn't going to exist (as of now)
+
+    /*#[superstruct(only(V4))]
     pub deposit_requests: VariableList<DepositRequest, U8192>,
     #[superstruct(only(V4))]
     pub withdrawal_requests: VariableList<WithdrawalRequest, U16>,
     #[superstruct(only(V4))] // TODO: Turn this into a VariableList
-    pub consolidation_requests: Vec<ConsolidationRequest>,
+    pub consolidation_requests: Vec<ConsolidationRequest>,*/
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -441,22 +478,20 @@ pub struct forkchoiceUpdatedResponse {
 
 #[superstruct(
     variants(V1, V2, V3, V4),
-    variant_attributes(
-        derive(Serialize, Deserialize, Clone),
-        serde(rename_all = "camelCase", deny_unknown_fields)
-    )
+    variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
 )]
 #[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase", untagged, deny_unknown_fields)]
+#[serde(rename_all = "camelCase", untagged)]
 pub struct getPayloadResponse {
     #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))] // V1, V2
     pub execution_payload: ExecutionPayloadV1,
     #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
     pub execution_payload: ExecutionPayloadV2,
-    #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
+    #[superstruct(only(V3, V4), partial_getter(rename = "execution_payload_v3"))]
+    // V4 is set to use ExecutionPayloadV3 as of right now and just introduce another attribute to this struct
     pub execution_payload: ExecutionPayloadV3,
-    #[superstruct(only(V4), partial_getter(rename = "execution_payload_v4"))]
-    pub execution_payload: ExecutionPayloadV4,
+    /*#[superstruct(only(V4), partial_getter(rename = "execution_payload_v4"))]
+    pub execution_payload: ExecutionPayloadV4,*/
     #[serde(with = "serde_utils::u256_hex_be")]
     #[superstruct(partial_getter(copy), only(V2, V3, V4))]
     pub block_value: U256,
@@ -464,6 +499,8 @@ pub struct getPayloadResponse {
     pub blobs_bundle: serde_json::Value,
     #[superstruct(only(V3, V4), partial_getter(copy))]
     pub should_override_builder: bool,
+    #[superstruct(only(V4))]
+    pub execution_requests: serde_json::Value,
 }
 
 impl Debug for getPayloadResponse {
