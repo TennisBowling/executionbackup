@@ -1101,10 +1101,15 @@ impl NodeRouter {
                     .map(|x| x.1.clone())
                     .collect(); // send to syncing nodes too
                 (make_response(&request.id, json!(resps)), 200)
-            }
+            },
 
-            // Requests like engine_getPayloadBodiesByHash, engine_getPayloadBodiesByRange
-            _ => {
+            EngineMethod::engine_exchangeTransitionConfigurationV1 |
+            EngineMethod::engine_exchangeCapabilities |
+            EngineMethod::engine_getPayloadBodiesByHashV1 |
+            EngineMethod::engine_getPayloadBodiesByRangeV1 |
+            EngineMethod::engine_getBlobsV1 |
+            EngineMethod::engine_getPayloadBodiesByHashV2 |
+            EngineMethod::engine_getPayloadBodiesByRangeV2 => {
                 // Send to primary node
                 let primary_node = match self.get_execution_node().await {
                     Some(primary_node) => primary_node,
@@ -1118,7 +1123,7 @@ impl NodeRouter {
                     .do_request_no_timeout(request, jwt_token.clone())
                     .await;
 
-                // return resp from primary node
+                // Return resp from primary node
                 match resp {
                     Ok(resp) => (resp, 200),
                     Err(e) => {
@@ -1126,7 +1131,8 @@ impl NodeRouter {
                         (make_error(&request.id, &e.to_string()), 200)
                     }
                 }
-            } // all other engine requests
+            } // all other engine requests*/
+
         }
     }
 

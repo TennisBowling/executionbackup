@@ -448,6 +448,7 @@ pub enum EngineMethod {
     engine_forkchoiceUpdatedV3,
     engine_getPayloadV3,
     engine_getClientVersionV1,
+    engine_getBlobsV1,
     // prague
     engine_newPayloadV4,
     engine_getPayloadV4,
