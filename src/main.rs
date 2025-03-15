@@ -60,11 +60,12 @@ pub fn newpayload_serializer(
     if request.method == EngineMethod::engine_newPayloadV3
         || request.method == EngineMethod::engine_newPayloadV4
     {
-        // params will have 3 fields: [ExecutionPayloadV3 | ExecutionPayloadV4 (doesnt exist as of now), expectedBlobVersionedHashes, ParentBeaconBlockRoot]
-        if params.len() != 3 {
-            return Err("newPayloadV3's params did not have 3 elements.".to_string());
+        // params will have possibly fields: [ExecutionPayloadV3, expectedBlobVersionedHashes, ParentBeaconBlockRoot, executionRequests (for V4)]
+        if params.len() < 3 {
+            return Err("newPayloadV3|4's params did not have at least 3 elements.".to_string());
         }
 
+        // newPayloadV4 uses ExecutionPayloadV3 just like newPayloadV3
         let execution_payload: ExecutionPayloadV3 = match serde_json::from_value(params[0].take()) {
             // direct getting is safe here since we checked that we have least 3 elements
             Ok(execution_payload) => execution_payload,
@@ -112,10 +113,31 @@ pub fn newpayload_serializer(
             }
         };
 
+        let mut execution_requests: Option<ExecutionRequests> = None;
+
+        if request.method == EngineMethod::engine_getPayloadV4 {
+            if params.len() != 4 {
+                tracing::error!("newPayloadV4 does not have 4 params");
+                return Err("newPayloadV4 does not have 4 params".to_string());
+            }
+
+            execution_requests = Some(match serde_json::from_value(params[3].take()) {
+                Ok(er) => er,
+                Err(e) => {
+                    tracing::error!(
+                        "Could not serialize ExecutionRequests from newPayloadV4: {}",
+                        e
+                    );
+                    return Err("Could not serialize ExecutionRequests.".to_string());
+                }
+            });
+        }
+
         return Ok(NewPayloadRequest {
             execution_payload: ExecutionPayload::V3(execution_payload),
             expected_blob_versioned_hashes: Some(versioned_hashes),
             parent_beacon_block_root: Some(parent_beacon_block_root),
+            execution_requests,
         });
     }
 
@@ -183,6 +205,7 @@ pub fn newpayload_serializer(
         execution_payload,
         expected_blob_versioned_hashes: None,
         parent_beacon_block_root: None,
+        execution_requests: None,
     })
 }
 
@@ -1101,15 +1124,13 @@ impl NodeRouter {
                     .map(|x| x.1.clone())
                     .collect(); // send to syncing nodes too
                 (make_response(&request.id, json!(resps)), 200)
-            },
+            }
 
-            EngineMethod::engine_exchangeTransitionConfigurationV1 |
-            EngineMethod::engine_exchangeCapabilities |
-            EngineMethod::engine_getPayloadBodiesByHashV1 |
-            EngineMethod::engine_getPayloadBodiesByRangeV1 |
-            EngineMethod::engine_getBlobsV1 |
-            EngineMethod::engine_getPayloadBodiesByHashV2 |
-            EngineMethod::engine_getPayloadBodiesByRangeV2 => {
+            EngineMethod::engine_exchangeTransitionConfigurationV1
+            | EngineMethod::engine_exchangeCapabilities
+            | EngineMethod::engine_getPayloadBodiesByHashV1
+            | EngineMethod::engine_getPayloadBodiesByRangeV1
+            | EngineMethod::engine_getBlobsV1 => {
                 // Send to primary node
                 let primary_node = match self.get_execution_node().await {
                     Some(primary_node) => primary_node,
@@ -1132,7 +1153,6 @@ impl NodeRouter {
                     }
                 }
             } // all other engine requests*/
-
         }
     }
 
@@ -1539,6 +1559,11 @@ async fn main() {
                 .long("holesky")
                 .help("Enables configuration for the holesky testnet")
         )
+        .arg(
+            clap::Arg::with_name("sepolia")
+                .long("sepolia")
+                .help("Enables configuration for the sepolia testnet")
+        )
         .get_matches();
 
     let port = matches.value_of("port").unwrap();
@@ -1550,6 +1575,7 @@ async fn main() {
     let log_level = matches.value_of("log-level").unwrap();
     let node_timings_enabled = matches.is_present("node-timings");
     let is_holesky = matches.is_present("holesky");
+    let is_sepolia = matches.is_present("sepolia");
 
     // set log level with tracing subscriber
     let filter_string = format!("{},hyper=info", log_level);
@@ -1677,14 +1703,25 @@ async fn main() {
         )));
     }
 
-    let fork_config = match is_holesky {
-        true => {
+    // We already rejected holesky && sepolia configs
+    let fork_config = match (is_holesky, is_sepolia) {
+        (true, false) => {
             tracing::info!("Running on holesky testnet");
             ForkConfig::holesky()
         }
-        false => {
+        (false, true) => {
+            tracing::info!("Running on sepolia testnet");
+            ForkConfig::sepolia()
+        }
+        (false, false) => {
             tracing::info!("Running on mainnet");
             ForkConfig::mainnet()
+        }
+        (true, true) => {
+            tracing::error!(
+                "EB cannot be set to both holesky and sepolia testnets. Please choose one."
+            );
+            return;
         }
     };
 

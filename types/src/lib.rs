@@ -6,7 +6,7 @@ use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use ssz_types::{
-    typenum::{U1048576, U1073741824},
+    typenum::{U1, U1048576, U1073741824, U16, U8192},
     VariableList,
 };
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
@@ -220,9 +220,24 @@ impl ForkConfig {
         ForkConfig {
             shanghai_fork_epoch: 256,
             cancun_fork_epoch: 29696,
-            prague_fork_epoch: 99999999999999,
+            prague_fork_epoch: 115968, // Check
         }
     }
+
+    pub fn sepolia() -> Self {
+        ForkConfig {
+            shanghai_fork_epoch: 56832,
+            cancun_fork_epoch: 132608,
+            prague_fork_epoch: 222464, // Check
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ExecutionRequests {
+    pub deposits: VariableList<DepositRequest, U8192>, // U8192 = max deposit requests per payload
+    pub withdrawals: VariableList<WithdrawalRequest, U16>,
+    pub consolidations: VariableList<ConsolidationRequest, U1>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -230,6 +245,7 @@ pub struct NewPayloadRequest {
     pub execution_payload: ExecutionPayload,
     pub expected_blob_versioned_hashes: Option<Vec<H256>>,
     pub parent_beacon_block_root: Option<H256>,
+    pub execution_requests: Option<ExecutionRequests>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -452,8 +468,6 @@ pub enum EngineMethod {
     // prague
     engine_newPayloadV4,
     engine_getPayloadV4,
-    engine_getPayloadBodiesByHashV2,
-    engine_getPayloadBodiesByRangeV2,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
