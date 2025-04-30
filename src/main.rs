@@ -663,6 +663,30 @@ impl NodeRouter {
         req: &RpcRequest,
         jwt_token: String,
     ) -> Result<PayloadStatusV1, FcuLogicError> {
+        // send to the syncing nodes to help them catch up with tokio::spawn so we don't have to wait for them
+        let syncing_nodes = self.alive_but_syncing_nodes.clone();
+        let jwt_token_clone = jwt_token.clone();
+        let req_clone = req.clone();
+        tokio::spawn(async move {
+            let syncing_nodes = syncing_nodes.read().await.clone();
+            if syncing_nodes.is_empty() {
+                return;
+            }
+
+            tracing::debug!(
+                "Sending fcU or newPayload to {} syncing nodes",
+                syncing_nodes.len()
+            );
+
+            join_all(
+                syncing_nodes
+                    .iter()
+                    .map(|node| node.do_request_no_timeout(&req_clone, jwt_token_clone.clone())),
+            )
+            .await;
+        });
+
+
         if resps.is_empty() {
             // no responses, so return SYNCING
             tracing::error!("No responses, returning SYNCING.");
@@ -700,28 +724,7 @@ impl NodeRouter {
             }
         }
 
-        // send to the syncing nodes to help them catch up with tokio::spawn so we don't have to wait for them
-        let syncing_nodes = self.alive_but_syncing_nodes.clone();
-        let jwt_token_clone = jwt_token.clone();
-        let req_clone = req.clone();
-        tokio::spawn(async move {
-            let syncing_nodes = syncing_nodes.read().await.clone();
-            if syncing_nodes.is_empty() {
-                return;
-            }
-
-            tracing::debug!(
-                "Sending fcU or newPayload to {} syncing nodes",
-                syncing_nodes.len()
-            );
-
-            join_all(
-                syncing_nodes
-                    .iter()
-                    .map(|node| node.do_request_no_timeout(&req_clone, jwt_token_clone.clone())),
-            )
-            .await;
-        });
+        
 
         // majority is checked and either VALID or SYNCING
         if majority.status == PayloadStatusV1Status::Syncing {
