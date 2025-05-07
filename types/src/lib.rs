@@ -212,7 +212,7 @@ impl ForkConfig {
         ForkConfig {
             shanghai_fork_epoch: 194048,
             cancun_fork_epoch: 269568,
-            prague_fork_epoch: 99999999999999,
+            prague_fork_epoch: 364032,
         }
     }
 
@@ -220,7 +220,7 @@ impl ForkConfig {
         ForkConfig {
             shanghai_fork_epoch: 256,
             cancun_fork_epoch: 29696,
-            prague_fork_epoch: 115968, // Check
+            prague_fork_epoch: 115968,
         }
     }
 
@@ -228,7 +228,7 @@ impl ForkConfig {
         ForkConfig {
             shanghai_fork_epoch: 56832,
             cancun_fork_epoch: 132608,
-            prague_fork_epoch: 222464, // Check
+            prague_fork_epoch: 222464,
         }
     }
 }
