@@ -213,6 +213,7 @@ pub struct ForkConfig {
     pub shanghai_fork_epoch: u64,
     pub cancun_fork_epoch: u64,
     pub prague_fork_epoch: u64,
+    pub osaka_fork_epoch: u64,
 }
 
 impl ForkConfig {
@@ -221,6 +222,7 @@ impl ForkConfig {
             shanghai_fork_epoch: 194048,
             cancun_fork_epoch: 269568,
             prague_fork_epoch: 364032,
+            osaka_fork_epoch: 99999999999999,
         }
     }
 
@@ -229,6 +231,7 @@ impl ForkConfig {
             shanghai_fork_epoch: 256,
             cancun_fork_epoch: 29696,
             prague_fork_epoch: 115968,
+            osaka_fork_epoch: 99999999999999,
         }
     }
 
@@ -237,6 +240,7 @@ impl ForkConfig {
             shanghai_fork_epoch: 56832,
             cancun_fork_epoch: 132608,
             prague_fork_epoch: 222464,
+            osaka_fork_epoch: 99999999999999,
         }
     }
 }

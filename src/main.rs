@@ -25,6 +25,10 @@ use verify_hash::verify_payload_block_hash;
 const VERSION: &str = "1.2.0";
 
 pub fn fork_name_at_epoch(epoch: u64, fork_config: &ForkConfig) -> ForkName {
+    if epoch >= fork_config.osaka_fork_epoch {
+        return ForkName::Osaka;
+    }
+
     if epoch >= fork_config.prague_fork_epoch {
         return ForkName::Prague;
     }
