@@ -115,6 +115,13 @@ impl PayloadIdNode {
                     None
                 }
             },
+            ForkName::Osaka => match serde_json::from_value::<getPayloadResponseV5>(res.clone()) {
+                Ok(val) => Some(getPayloadResponse::V5(val)),
+                Err(e) => {
+                    tracing::error!("{}: Couldn't derive getPayloadResponseV5 for getPayloadV4: {}. Payload body: {:?}", self.node.url, e, res);
+                    None
+                }
+            },
         }
     }
 }
@@ -198,6 +205,7 @@ pub enum ForkName {
     Shanghai,
     Cancun,
     Prague,
+    Osaka,
 }
 
 pub struct ForkConfig {
@@ -468,6 +476,10 @@ pub enum EngineMethod {
     // prague
     engine_newPayloadV4,
     engine_getPayloadV4,
+    // osaka
+    engine_getBlobsV2,
+    engine_getPayloadV5,
+
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -492,7 +504,7 @@ pub struct forkchoiceUpdatedResponse {
 }
 
 #[superstruct(
-    variants(V1, V2, V3, V4),
+    variants(V1, V2, V3, V4, V5),
     variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
 )]
 #[derive(Serialize, Deserialize, Clone)]
@@ -502,19 +514,19 @@ pub struct getPayloadResponse {
     pub execution_payload: ExecutionPayloadV1,
     #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
     pub execution_payload: ExecutionPayloadV2,
-    #[superstruct(only(V3, V4), partial_getter(rename = "execution_payload_v3"))]
+    #[superstruct(only(V3, V4, V5), partial_getter(rename = "execution_payload_v3"))]
     // V4 is set to use ExecutionPayloadV3 as of right now and just introduce another attribute to this struct
     pub execution_payload: ExecutionPayloadV3,
     /*#[superstruct(only(V4), partial_getter(rename = "execution_payload_v4"))]
     pub execution_payload: ExecutionPayloadV4,*/
     #[serde(with = "serde_utils::u256_hex_be")]
-    #[superstruct(partial_getter(copy), only(V2, V3, V4))]
+    #[superstruct(partial_getter(copy), only(V2, V3, V4, V5))]
     pub block_value: U256,
-    #[superstruct(only(V3, V4))]
+    #[superstruct(only(V3, V4, V5))]
     pub blobs_bundle: serde_json::Value,
-    #[superstruct(only(V3, V4), partial_getter(copy))]
+    #[superstruct(only(V3, V4, V5), partial_getter(copy))]
     pub should_override_builder: bool,
-    #[superstruct(only(V4))]
+    #[superstruct(only(V4, V5))]
     pub execution_requests: serde_json::Value,
 }
 
@@ -525,6 +537,7 @@ impl Debug for getPayloadResponse {
             Self::V2(_) => f.debug_tuple("V2").finish(),
             Self::V3(_) => f.debug_tuple("V3").finish(),
             Self::V4(_) => f.debug_tuple("V4").finish(),
+            Self::V5(_) => f.debug_tuple("V5").finish(),
         }
     }
 }

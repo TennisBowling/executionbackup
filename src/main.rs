@@ -115,7 +115,7 @@ pub fn newpayload_serializer(
 
         let mut execution_requests: Option<ExecutionRequests> = None;
 
-        if request.method == EngineMethod::engine_getPayloadV4 {
+        if request.method == EngineMethod::engine_newPayloadV4 {
             if params.len() != 4 {
                 tracing::error!("newPayloadV4 does not have 4 params");
                 return Err("newPayloadV4 does not have 4 params".to_string());
@@ -199,6 +199,7 @@ pub fn newpayload_serializer(
         }
         ForkName::Cancun => unreachable!("File an issue on github. This should never happen. Matched Cancun fork name even though didn't match previous if newPayloadV3 or params.len != 1."),
         ForkName::Prague => unreachable!("File an issue on github. This should never happen. Matched Prague fork name even though didn't match previous if newPayloadV3 or params.len != 1."),
+        ForkName::Osaka => unreachable!("File an issue on github. This should never happen. Matched Osaka fork name even though didn't match previous if newPayloadV3 or params.len != 1."),
     };
 
     Ok(NewPayloadRequest {
@@ -769,7 +770,8 @@ impl NodeRouter {
 
             EngineMethod::engine_getPayloadV2
             | EngineMethod::engine_getPayloadV3
-            | EngineMethod::engine_getPayloadV4 => {
+            | EngineMethod::engine_getPayloadV4
+            | EngineMethod::engine_getPayloadV5 => {
                 let cl_payload_id = request.params.as_array().unwrap()[0]
                     .as_str()
                     .unwrap()
@@ -799,6 +801,7 @@ impl NodeRouter {
                     EngineMethod::engine_getPayloadV2 => ForkName::Shanghai,
                     EngineMethod::engine_getPayloadV3 => ForkName::Cancun,
                     EngineMethod::engine_getPayloadV4 => ForkName::Prague,
+                    EngineMethod::engine_getPayloadV5 => ForkName::Osaka,
                     _ => unreachable!("File an issue on github. Matched non Engine_getPayload"),
                 };
 
@@ -1133,7 +1136,8 @@ impl NodeRouter {
             | EngineMethod::engine_exchangeCapabilities
             | EngineMethod::engine_getPayloadBodiesByHashV1
             | EngineMethod::engine_getPayloadBodiesByRangeV1
-            | EngineMethod::engine_getBlobsV1 => {
+            | EngineMethod::engine_getBlobsV1
+            | EngineMethod::engine_getBlobsV2 => {
                 // Send to primary node
                 let primary_node = match self.get_execution_node().await {
                     Some(primary_node) => primary_node,
