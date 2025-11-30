@@ -691,7 +691,6 @@ impl NodeRouter {
             .await;
         });
 
-
         if resps.is_empty() {
             // no responses, so return SYNCING
             tracing::error!("No responses, returning SYNCING.");
@@ -728,8 +727,6 @@ impl NodeRouter {
                 _ => {}
             }
         }
-
-        
 
         // majority is checked and either VALID or SYNCING
         if majority.status == PayloadStatusV1Status::Syncing {

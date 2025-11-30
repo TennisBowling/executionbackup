@@ -222,7 +222,7 @@ impl ForkConfig {
             shanghai_fork_epoch: 194048,
             cancun_fork_epoch: 269568,
             prague_fork_epoch: 364032,
-            osaka_fork_epoch: 99999999999999,
+            osaka_fork_epoch: 411392,
         }
     }
 
@@ -231,7 +231,7 @@ impl ForkConfig {
             shanghai_fork_epoch: 256,
             cancun_fork_epoch: 29696,
             prague_fork_epoch: 115968,
-            osaka_fork_epoch: 99999999999999,
+            osaka_fork_epoch: 165120,
         }
     }
 
@@ -240,7 +240,7 @@ impl ForkConfig {
             shanghai_fork_epoch: 56832,
             cancun_fork_epoch: 132608,
             prague_fork_epoch: 222464,
-            osaka_fork_epoch: 99999999999999,
+            osaka_fork_epoch: 272640,
         }
     }
 }
@@ -483,7 +483,6 @@ pub enum EngineMethod {
     // osaka
     engine_getBlobsV2,
     engine_getPayloadV5,
-
 }
 
 #[derive(Serialize, Deserialize, Clone)]
