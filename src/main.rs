@@ -117,7 +117,7 @@ pub fn newpayload_serializer(
             }
         };
 
-        let mut execution_requests: Option<ExecutionRequests> = None;
+        let mut execution_requests: Option<Vec<String>> = None;
 
         if request.method == EngineMethod::engine_newPayloadV4 {
             if params.len() != 4 {
@@ -128,11 +128,8 @@ pub fn newpayload_serializer(
             execution_requests = Some(match serde_json::from_value(params[3].take()) {
                 Ok(er) => er,
                 Err(e) => {
-                    tracing::error!(
-                        "Could not serialize ExecutionRequests from newPayloadV4: {}",
-                        e
-                    );
-                    return Err("Could not serialize ExecutionRequests.".to_string());
+                    tracing::error!("Could not get ExecutionRequests from newPayloadV4: {}", e);
+                    return Err("Could not get ExecutionRequests.".to_string());
                 }
             });
         }

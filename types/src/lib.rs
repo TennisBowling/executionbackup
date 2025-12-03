@@ -246,18 +246,11 @@ impl ForkConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct ExecutionRequests {
-    pub deposits: VariableList<DepositRequest, U8192>, // U8192 = max deposit requests per payload
-    pub withdrawals: VariableList<WithdrawalRequest, U16>,
-    pub consolidations: VariableList<ConsolidationRequest, U1>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
 pub struct NewPayloadRequest {
     pub execution_payload: ExecutionPayload,
     pub expected_blob_versioned_hashes: Option<Vec<H256>>,
     pub parent_beacon_block_root: Option<H256>,
-    pub execution_requests: Option<ExecutionRequests>,
+    pub execution_requests: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize)]
