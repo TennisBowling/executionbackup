@@ -5,16 +5,19 @@ ExecutionBackup is an Ethereum execution-layer multiplexer used by node and stak
 ## Maintainer and security contact
 
 - **Maintainer and security contact:** [@TennisBowling](https://github.com/TennisBowling)
+- **Email:** [tennisbowling@tennisbowling.com](mailto:tennisbowling@tennisbowling.com)
 
 ## Reporting a vulnerability
 
 Please **do not** open a public issue, pull request or discussion for a suspected vulnerability.
 
-Report it privately through GitHub:
+Report it privately through GitHub (preferred):
 
 1. Go to the [Security tab](https://github.com/TennisBowling/executionbackup/security) of this repository.
 2. Click **Report a vulnerability**.
    (Direct link: <https://github.com/TennisBowling/executionbackup/security/advisories/new>)
+
+If you can't use GitHub, email tennisbowling@tennisbowling.com with the subject line "executionbackup security". Don't include full exploit details in a first message if you'd rather agree on a secure channel first.
 
 Please include, where you can:
 

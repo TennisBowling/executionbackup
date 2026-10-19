@@ -193,7 +193,7 @@ struct RecheckMetricsReport {
 
 ## Maintainer and security
 ExecutionBackup is maintained by [@TennisBowling](https://github.com/TennisBowling), who is also the security contact.
-To report a vulnerability, please use [GitHub private vulnerability reporting](https://github.com/TennisBowling/executionbackup/security/advisories/new) and see [SECURITY.md](SECURITY.md). Please don't open public issues for security problems.
+To report a vulnerability, please use [GitHub private vulnerability reporting](https://github.com/TennisBowling/executionbackup/security/advisories/new) and see [SECURITY.md](SECURITY.md). You can also email [tennisbowling@tennisbowling.com](mailto:tennisbowling@tennisbowling.com). Please don't open public issues for security problems.
 
 ## Testing
 ```bash
